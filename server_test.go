@@ -108,10 +108,13 @@ func TestSimplifiedDashboardAssets(t *testing.T) {
 			t.Errorf("required dashboard section missing: %s", heading)
 		}
 	}
-	for _, id := range []string{"rxRate", "txRate", "rxTotal", "txTotal", "trafficTotal", "packetRate", "utilizationChart", "throughputChart", "topCpuTable", "topMemoryTable"} {
+	for _, id := range []string{"rxRate", "txRate", "rxTotal", "txTotal", "trafficTotal", "packetRate", "topCpuTable", "topMemoryTable"} {
 		if !strings.Contains(string(html), `id="`+id+`"`) {
 			t.Errorf("required dashboard element missing: %s", id)
 		}
+	}
+	if strings.Contains(string(html), "chart-grid") || strings.Contains(string(html), "<canvas") {
+		t.Fatal("trend charts must be removed")
 	}
 	// long: 开机日期与持续运行时长成对阅读，日期应排在时长之前且只展示一次。
 	bootPosition := strings.Index(string(html), `id="bootTimeBadge"`)

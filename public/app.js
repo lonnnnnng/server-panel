@@ -52,14 +52,7 @@ const els = {
   tcpEstablished: byId('tcpEstablished'),
   tcpListening: byId('tcpListening'),
   topCpuTable: byId('topCpuTable'),
-  topMemoryTable: byId('topMemoryTable'),
-  utilizationChart: byId('utilizationChart'),
-  throughputChart: byId('throughputChart')
-};
-
-const charts = {
-  utilization: els.utilizationChart.getContext('2d'),
-  throughput: els.throughputChart.getContext('2d')
+  topMemoryTable: byId('topMemoryTable')
 };
 
 function byId(id) {
@@ -155,8 +148,6 @@ function render(metrics) {
   renderDisk(metrics.disk);
   renderNetwork(metrics.network, metrics.tcp);
   renderProcesses(metrics.processes);
-  drawUtilizationChart(metrics.history || []);
-  drawThroughputChart(metrics.history || []);
 }
 
 function renderCpu(metrics) {
@@ -263,98 +254,11 @@ function formatRawPercent(value, digits = 0) {
   return `${Math.max(value, 0).toFixed(digits)}%`;
 }
 
-function drawUtilizationChart(history) {
-  drawChart({ canvas: els.utilizationChart, ctx: charts.utilization, history, mode: 'percent', series: [
-    { key: 'cpu', color: '#4fd1c5' }, { key: 'memory', color: '#f6c453' },
-    { key: 'disk', color: '#f07167' }, { key: 'load', color: '#b8a1ff' }
-  ] });
-}
-
-function drawThroughputChart(history) {
-  drawChart({ canvas: els.throughputChart, ctx: charts.throughput, history, mode: 'bytes', series: [
-    { key: 'rxRate', color: '#4fd1c5' }, { key: 'txRate', color: '#8ab4ff' },
-    { key: 'readRate', color: '#b8a1ff' }, { key: 'writeRate', color: '#f07167' }
-  ] });
-}
-
-function drawChart({ canvas, ctx, history, mode, series }) {
-  const dpr = window.devicePixelRatio || 1;
-  const rect = canvas.getBoundingClientRect();
-  const width = Math.max(320, Math.floor(rect.width * dpr));
-  const height = Math.max(220, Math.floor(rect.height * dpr));
-  if (canvas.width !== width || canvas.height !== height) {
-    canvas.width = width;
-    canvas.height = height;
-  }
-  ctx.clearRect(0, 0, width, height);
-  ctx.fillStyle = '#101413';
-  ctx.fillRect(0, 0, width, height);
-  const padding = { top: 18 * dpr, right: 18 * dpr, bottom: 24 * dpr, left: 48 * dpr };
-  const innerWidth = width - padding.left - padding.right;
-  const innerHeight = height - padding.top - padding.bottom;
-  const maxValue = getChartMax(history, mode, series);
-  ctx.strokeStyle = 'rgba(243, 245, 241, 0.10)';
-  ctx.lineWidth = 1 * dpr;
-  ctx.fillStyle = 'rgba(243, 245, 241, 0.46)';
-  ctx.font = `${11 * dpr}px Inter, sans-serif`;
-  ctx.textAlign = 'right';
-  ctx.textBaseline = 'middle';
-  for (let i = 0; i <= 4; i += 1) {
-    const y = padding.top + (innerHeight / 4) * i;
-    const value = maxValue - (maxValue / 4) * i;
-    ctx.beginPath();
-    ctx.moveTo(padding.left, y);
-    ctx.lineTo(width - padding.right, y);
-    ctx.stroke();
-    ctx.fillText(mode === 'bytes' ? formatRate(value).replace('/s', '') : `${Math.round(value)}%`, padding.left - 8 * dpr, y);
-  }
-  for (const item of series) drawLine(ctx, history, item.key, item.color, padding, innerWidth, innerHeight, maxValue, dpr);
-}
-
-function getChartMax(history, mode, series) {
-  const max = history.reduce((peak, point) => {
-    const local = series.reduce((inner, item) => Math.max(inner, point[item.key] || 0), 0);
-    return Math.max(peak, local);
-  }, 1);
-  if (mode === 'percent' && max <= 100) return 100;
-  const magnitude = 10 ** Math.floor(Math.log10(max));
-  return Math.ceil(max / magnitude) * magnitude;
-}
-
-function drawLine(ctx, history, key, color, padding, innerWidth, innerHeight, maxValue, dpr) {
-  if (!history.length) return;
-  ctx.beginPath();
-  ctx.strokeStyle = color;
-  ctx.lineWidth = 2.2 * dpr;
-  ctx.lineJoin = 'round';
-  ctx.lineCap = 'round';
-  let hasPrevious = false;
-  history.forEach((point, index) => {
-    if (!Number.isFinite(point[key])) {
-      hasPrevious = false;
-      return;
-    }
-    const x = padding.left + (history.length === 1 ? innerWidth : (innerWidth / (history.length - 1)) * index);
-    const value = clamp(point[key], 0, maxValue);
-    const y = padding.top + innerHeight - (value / maxValue) * innerHeight;
-    if (!hasPrevious) ctx.moveTo(x, y);
-    else ctx.lineTo(x, y);
-    hasPrevious = true;
-  });
-  ctx.stroke();
-}
-
 async function pollOnce() {
   const response = await fetch('/api/metrics', { cache: 'no-store' });
   if (!response.ok) throw new Error(`metrics request failed: ${response.status}`);
   render(await response.json());
 }
-
-window.addEventListener('resize', () => {
-  if (!state.metrics) return;
-  drawUtilizationChart(state.metrics.history || []);
-  drawThroughputChart(state.metrics.history || []);
-});
 
 function startFallbackPolling() {
   if (state.fallbackTimer) return;
