@@ -48,17 +48,17 @@ Release 压缩包在以上目录基础上包含 `bin/server-panel`；无需在�
 安装和服务管理需要 Bash、systemd、curl、tar、sha256sum，以及系统自带的 awk、sed、install、mktemp、id 工具。
 
 ```bash
-release_tag=v0.1.1
+release_tag=v0.1.2
 release_url="https://github.com/lonnnnnng/server-panel/releases/download/$release_tag"
 mkdir -p "$HOME/server-panel-download"
 cd "$HOME/server-panel-download"
-curl -fL --retry 3 -O "$release_url/server-panel_0.1.1_linux_amd64.tar.gz"
+curl -fL --retry 3 -O "$release_url/server-panel_0.1.2_linux_amd64.tar.gz"
 curl -fL --retry 3 -O "$release_url/SHA256SUMS"
-grep '  server-panel_0.1.1_linux_amd64.tar.gz$' SHA256SUMS | sha256sum -c -
+grep '  server-panel_0.1.2_linux_amd64.tar.gz$' SHA256SUMS | sha256sum -c -
 
 # 首次安装要求目标目录不存在，避免覆盖其他项目。
 test ! -e "$HOME/server-panel"
-tar -xzf server-panel_0.1.1_linux_amd64.tar.gz -C "$HOME"
+tar -xzf server-panel_0.1.2_linux_amd64.tar.gz -C "$HOME"
 cd "$HOME/server-panel"
 sudo ./scripts/service.sh install --user lee
 ./scripts/service.sh health
@@ -104,6 +104,7 @@ Go 1.22 或更高版本；指标采集面向 Linux，macOS 可编译和运行 HT
 ```bash
 go vet ./...
 go test -race ./...
+node scripts/service-test.cjs
 ./scripts/build.sh
 ./bin/server-panel --version
 HOST=127.0.0.1 PORT=8888 ./bin/server-panel
@@ -125,11 +126,11 @@ curl -N http://127.0.0.1:8888/api/events
 
 ```bash
 ./scripts/release.sh
-git tag -a v0.1.1 -m '发布服务器面板 v0.1.1'
-git push origin main v0.1.1
-gh release create v0.1.1 dist/server-panel_0.1.1_linux_amd64.tar.gz \
-  dist/server-panel_0.1.1_linux_arm64.tar.gz dist/SHA256SUMS \
-  --verify-tag --title 'Server Panel v0.1.1' --notes-file CHANGELOG.md
+git tag -a v0.1.2 -m '发布服务器面板 v0.1.2'
+git push origin main v0.1.2
+gh release create v0.1.2 dist/server-panel_0.1.2_linux_amd64.tar.gz \
+  dist/server-panel_0.1.2_linux_arm64.tar.gz dist/SHA256SUMS \
+  --verify-tag --title 'Server Panel v0.1.2' --notes-file CHANGELOG.md
 ```
 
 发布脚本拒绝未提交的源码，二进制注入实际提交哈希；`SHA256SUMS` 对应两个 Release 压缩包。构建使用 `CGO_ENABLED=0`，避免依赖构建机的动态 libc。

@@ -22,5 +22,7 @@ jobs:
         run: for script in scripts/*.sh; do bash -n "$script"; done
       - name: 前端语法检查
         run: node --check public/app.js
+      - name: 服务健康检查回归
+        run: node scripts/service-test.cjs
       - name: Linux 二进制构建
         run: GOOS=linux GOARCH=amd64 ./scripts/build.sh

@@ -36,7 +36,8 @@ health() {
     ::) panel_host='[::1]' ;;
     *:*) panel_host="[$panel_host]" ;;
   esac
-  curl --noproxy '*' -fsS --connect-timeout 3 --max-time 15 "http://$panel_host:$panel_port/api/health"
+  # long: health 在 if 中调用时 Bash 不触发 errexit，必须显式返回失败，防止换行输出掩盖 curl 错误。
+  curl --noproxy '*' -fsS --connect-timeout 3 --max-time 15 "http://$panel_host:$panel_port/api/health" || return 1
   printf '\n'
 }
 
