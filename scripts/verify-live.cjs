@@ -33,8 +33,9 @@ async function main() {
   const near = (a,b,label,tolerance=1e-6) => assert.ok(Math.abs(a-b) <= tolerance, `${label}: ${a} != ${b}`);
   for (const m of samples) {
     assert.ok(m.cpu.valid && m.memory.valid && m.disk.valid && m.network.valid, 'core source unavailable');
-    // long: 新版不再扫描进程列表，线上快照也必须保持没有进程热点负载。
-    assert.equal('processes' in m, false, 'process scan data must be omitted');
+    assert.ok(Array.isArray(m.processes.topCpu) && Array.isArray(m.processes.topMemory), 'process hot spots unavailable');
+    assert.equal('listeners' in m.tcp, false, 'port listener details must be omitted');
+    assert.equal('ports' in m.tcp, false, 'port list must be omitted');
     assert.equal(m.memory.used, m.memory.total - m.memory.available);
     near(m.memory.percent, m.memory.used/m.memory.total*100, 'memory percent', 0.001);
     assert.equal(m.disk.percent, Math.ceil(m.disk.used/(m.disk.used+m.disk.available)*100));
@@ -46,7 +47,6 @@ async function main() {
     for (const key of ['rxBytes','txBytes','rxPackets','txPackets','rxErrors','txErrors','rxDrops','txDrops','rxRate','txRate']) {
       near(m.network[key],sum(selected,key),`network ${key}`);
     }
-    assert.equal(m.tcp.listeners.length, m.tcp.listening + m.tcp.udpListening);
     const h = m.history.at(-1);
     assert.equal(h.timestamp,m.timestamp);
     assert.equal(h.cpu,m.cpu.percent);
@@ -59,6 +59,6 @@ async function main() {
   console.log(JSON.stringify({health,samples:samples.length,intervalMs:{min:Math.min(...intervals),max:Math.max(...intervals)},
     memoryPercent:m.memory.percent,diskPercent:m.disk.percent,networkScope:m.network.scope,interfaces:m.network.selectedInterfaces,
     ioScope:m.disk.io.scope,tcpListeners:m.tcp.listening,udpListeners:m.tcp.udpListening,
-    historyCurrent:true,processScanData:false},null,2));
+    historyCurrent:true,processCpuAvailable:m.processes.topCpu.some(x=>x.cpuValid)},null,2));
 }
 main().catch(error => { console.error(error.message); process.exitCode = 1; });

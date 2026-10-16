@@ -70,6 +70,11 @@ type DiskRaw struct {
 	Devices    map[string]DiskDevice
 }
 
+type ProcRaw struct {
+	Time      time.Time
+	Processes map[string]ProcSample
+}
+
 type AppState struct {
 	mu          sync.Mutex
 	latest      *Metrics
@@ -78,6 +83,7 @@ type AppState struct {
 	prevCPU     *CPUSnapshot
 	prevNetwork *NetworkRaw
 	prevDisk    *DiskRaw
+	prevProc    *ProcRaw
 	hardware    HardwareMetrics
 	hardwareAt  time.Time
 }
@@ -90,6 +96,7 @@ type Metrics struct {
 	Memory      MemoryMetrics   `json:"memory"`
 	Disk        DiskMetrics     `json:"disk"`
 	Network     NetworkMetrics  `json:"network"`
+	Processes   ProcMetrics     `json:"processes"`
 	TCP         TCPMetrics      `json:"tcp"`
 	Pressure    PressureSet     `json:"pressure"`
 	Temperature TempMetrics     `json:"temperature"`
@@ -384,6 +391,38 @@ type NetInterface struct {
 	TXPacketRate float64 `json:"txPacketRate"`
 }
 
+type ProcMetrics struct {
+	Valid     bool          `json:"valid"`
+	Total     int           `json:"total"`
+	Running   int           `json:"running"`
+	Sleeping  int           `json:"sleeping"`
+	Stopped   int           `json:"stopped"`
+	Zombie    int           `json:"zombie"`
+	Uptime    float64       `json:"uptime"`
+	TopMemory []ProcessInfo `json:"topMemory"`
+	TopCPU    []ProcessInfo `json:"topCpu"`
+}
+
+type ProcessInfo struct {
+	CPUValid      bool    `json:"cpuValid"`
+	PID           int     `json:"pid"`
+	PPID          int     `json:"ppid"`
+	UID           string  `json:"uid"`
+	User          string  `json:"user"`
+	Name          string  `json:"name"`
+	Command       string  `json:"command"`
+	State         string  `json:"state"`
+	Threads       int     `json:"threads"`
+	RSS           uint64  `json:"rss"`
+	VSZ           uint64  `json:"vsz"`
+	RssAnon       uint64  `json:"rssAnon"`
+	RssFile       uint64  `json:"rssFile"`
+	VmData        uint64  `json:"vmData"`
+	VmSwap        uint64  `json:"vmSwap"`
+	MemoryPercent float64 `json:"memoryPercent"`
+	CPU           float64 `json:"cpu"`
+}
+
 type TCPMetrics struct {
 	Valid        bool           `json:"valid"`
 	Partial      bool           `json:"partial"`
@@ -394,18 +433,6 @@ type TCPMetrics struct {
 	TimeWait     int            `json:"timeWait"`
 	CloseWait    int            `json:"closeWait"`
 	States       map[string]int `json:"states"`
-	Ports        []int          `json:"ports"`
-	Listeners    []PortListener `json:"listeners"`
-}
-
-type PortListener struct {
-	Protocol     string `json:"protocol"`
-	LocalAddress string `json:"localAddress"`
-	Port         int    `json:"port"`
-	PID          int    `json:"pid"`
-	Process      string `json:"process"`
-	Command      string `json:"command"`
-	User         string `json:"user"`
 }
 
 type PressureSet struct {
@@ -476,6 +503,7 @@ func (s *AppState) collect() error {
 	mem := readMemory()
 	disk := readDisk(s)
 	netm := readNetwork(s)
+	procs := readProcesses(s, mem.Total)
 	tcp := readTCP()
 	host := readHost()
 	metrics := &Metrics{
@@ -487,6 +515,7 @@ func (s *AppState) collect() error {
 		Memory:      mem,
 		Disk:        disk,
 		Network:     netm,
+		Processes:   procs,
 		TCP:         tcp,
 		Pressure:    readPressure(),
 		Temperature: readTemperature(),
@@ -852,28 +881,93 @@ func readNetwork(s *AppState) NetworkMetrics {
 	return result
 }
 
+func readProcesses(s *AppState, memoryTotal uint64) ProcMetrics {
+	entries, readErr := os.ReadDir("/proc")
+	now := time.Now()
+	previous := s.prevProc
+	seconds := 0.0
+	if previous != nil {
+		seconds = math.Max(now.Sub(previous.Time).Seconds(), 0.001)
+	}
+	current := &ProcRaw{Time: now, Processes: map[string]ProcSample{}}
+	var rows []ProcessInfo
+	result := ProcMetrics{Valid: readErr == nil, Uptime: readUptime()}
+	tickHz := clockTicks()
+	for _, entry := range entries {
+		if !entry.IsDir() || !isDigits(entry.Name()) {
+			continue
+		}
+		pid := entry.Name()
+		status := readText("/proc/" + pid + "/status")
+		if status == "" {
+			continue
+		}
+		name := matchStatus(status, "Name")
+		state := stringFirst(matchStatus(status, "State"))
+		rss := parseUint(matchStatus(status, "VmRSS")) * 1024
+		vsz := parseUint(matchStatus(status, "VmSize")) * 1024
+		rssAnon := parseUint(matchStatus(status, "RssAnon")) * 1024
+		rssFile := parseUint(matchStatus(status, "RssFile")) * 1024
+		vmData := parseUint(matchStatus(status, "VmData")) * 1024
+		vmSwap := parseUint(matchStatus(status, "VmSwap")) * 1024
+		ppid := int(parseUint(matchStatus(status, "PPid")))
+		uid := matchStatus(status, "Uid")
+		threads := int(parseUint(matchStatus(status, "Threads")))
+		sample := parseProcSample(readText("/proc/" + pid + "/stat"))
+		current.Processes[pid] = sample
+		cpuPercent, cpuValid := 0.0, false
+		if previous != nil {
+			if old, ok := previous.Processes[pid]; ok {
+				cpuPercent, cpuValid = processCPU(sample, old, tickHz, seconds)
+			}
+		}
+		pidNum, _ := strconv.Atoi(pid)
+		cmd := strings.ReplaceAll(readText("/proc/"+pid+"/cmdline"), "\x00", " ")
+		rows = append(rows, ProcessInfo{
+			CPUValid: cpuValid, PID: pidNum, PPID: ppid, UID: uid, User: usernameForUID(uid),
+			Name: name, Command: strings.TrimSpace(cmd), State: state, Threads: threads,
+			RSS: rss, VSZ: vsz, RssAnon: rssAnon, RssFile: rssFile, VmData: vmData, VmSwap: vmSwap,
+			MemoryPercent: percent(rss, memoryTotal), CPU: cpuPercent,
+		})
+		result.Total++
+		switch state {
+		case "R":
+			result.Running++
+		case "S", "I":
+			result.Sleeping++
+		case "T":
+			result.Stopped++
+		case "Z":
+			result.Zombie++
+		}
+	}
+	s.prevProc = current
+	sort.Slice(rows, func(i, j int) bool { return rows[i].RSS > rows[j].RSS })
+	result.TopMemory = append(result.TopMemory, rows[:min(len(rows), 8)]...)
+	sort.Slice(rows, func(i, j int) bool { return rows[i].CPU > rows[j].CPU })
+	result.TopCPU = append(result.TopCPU, rows[:min(len(rows), 8)]...)
+	return result
+}
+
 func readTCP() TCPMetrics {
 	stateMap := map[string]string{"01": "established", "02": "synSent", "03": "synRecv", "04": "finWait1", "05": "finWait2", "06": "timeWait", "07": "close", "08": "closeWait", "09": "lastAck", "0A": "listening", "0B": "closing"}
 	result := TCPMetrics{States: map[string]int{}}
-	ports := map[int]bool{}
 	socketFiles := []struct {
-		path     string
-		protocol string
-		tcp      bool
+		path string
+		tcp  bool
 	}{
-		{path: "/proc/net/tcp", protocol: "tcp", tcp: true},
-		{path: "/proc/net/tcp6", protocol: "tcp6", tcp: true},
-		{path: "/proc/net/udp", protocol: "udp"},
-		{path: "/proc/net/udp6", protocol: "udp6"},
+		{path: "/proc/net/tcp", tcp: true},
+		{path: "/proc/net/tcp6", tcp: true},
+		{path: "/proc/net/udp"},
+		{path: "/proc/net/udp6"},
 	}
-	var listenerEntries []socketEntry
 	for _, file := range socketFiles {
 		if _, err := os.ReadFile(file.path); err != nil {
 			result.Partial = true
 			continue
 		}
 		result.Valid = true
-		for _, entry := range readSocketEntries(file.path, file.protocol, file.tcp, stateMap) {
+		for _, entry := range readSocketEntries(file.path, file.tcp, stateMap) {
 			if file.tcp {
 				result.Total++
 				result.States[entry.State]++
@@ -893,36 +987,8 @@ func readTCP() TCPMetrics {
 			} else {
 				result.UDPListening++
 			}
-			if entry.Port <= 0 {
-				continue
-			}
-			ports[entry.Port] = true
-			listenerEntries = append(listenerEntries, entry)
 		}
 	}
-	processesByInode := readSocketProcessMap(listenerEntries)
-	for _, entry := range listenerEntries {
-		process := processesByInode[entry.Inode]
-		result.Listeners = append(result.Listeners, PortListener{
-			Protocol:     entry.Protocol,
-			LocalAddress: entry.Address,
-			Port:         entry.Port,
-			PID:          process.PID,
-			Process:      process.Name,
-			Command:      process.Command,
-			User:         process.User,
-		})
-	}
-	for port := range ports {
-		result.Ports = append(result.Ports, port)
-	}
-	sort.Ints(result.Ports)
-	sort.Slice(result.Listeners, func(i, j int) bool {
-		if result.Listeners[i].Port == result.Listeners[j].Port {
-			return result.Listeners[i].Protocol < result.Listeners[j].Protocol
-		}
-		return result.Listeners[i].Port < result.Listeners[j].Port
-	})
 	return result
 }
 
@@ -1974,18 +2040,7 @@ func readAddresses() []Address {
 }
 
 type socketEntry struct {
-	Protocol string
-	Address  string
-	Port     int
-	State    string
-	Inode    string
-}
-
-type socketProcess struct {
-	PID     int
-	Name    string
-	Command string
-	User    string
+	State string
 }
 
 func readNetworkInterfaceDetails(name string) NetInterface {
@@ -2011,7 +2066,7 @@ func readNetworkInterfaceDetails(name string) NetInterface {
 	return item
 }
 
-func readSocketEntries(path, protocol string, tcp bool, stateMap map[string]string) []socketEntry {
+func readSocketEntries(path string, tcp bool, stateMap map[string]string) []socketEntry {
 	text := strings.TrimSpace(readText(path))
 	if text == "" {
 		return nil
@@ -2023,12 +2078,11 @@ func readSocketEntries(path, protocol string, tcp bool, stateMap map[string]stri
 		if len(parts) < 10 {
 			continue
 		}
-		address, port := parseSocketLocal(parts[1], protocol)
-		if port <= 0 {
+		if parseSocketPort(parts[1]) <= 0 {
 			continue
 		}
 		state := "bound"
-		// long: connected UDP socket 不是监听入口，只把 UNCONN(07) 计入端口占用。
+		// long: 只把 UDP 未连接套接字计入监听数量，避免把客户端会话误报为服务。
 		if !tcp && parts[3] != "07" {
 			continue
 		}
@@ -2039,131 +2093,22 @@ func readSocketEntries(path, protocol string, tcp bool, stateMap map[string]stri
 			}
 		}
 		result = append(result, socketEntry{
-			Protocol: protocol,
-			Address:  address,
-			Port:     port,
-			State:    state,
-			Inode:    parts[9],
+			State: state,
 		})
 	}
 	return result
 }
 
-func readSocketProcessMap(entries []socketEntry) map[string]socketProcess {
-	wanted := map[string]bool{}
-	for _, entry := range entries {
-		if entry.Inode != "" && entry.Inode != "0" {
-			wanted[entry.Inode] = true
-		}
+func parseSocketPort(value string) int {
+	separator := strings.LastIndexByte(value, ':')
+	if separator < 0 {
+		return 0
 	}
-	if len(wanted) == 0 {
-		return nil
-	}
-	result := map[string]socketProcess{}
-	procEntries, _ := os.ReadDir("/proc")
-	for _, procEntry := range procEntries {
-		if len(result) >= len(wanted) {
-			break
-		}
-		if !procEntry.IsDir() || !isDigits(procEntry.Name()) {
-			continue
-		}
-		pid := procEntry.Name()
-		fdEntries, err := os.ReadDir("/proc/" + pid + "/fd")
-		if err != nil {
-			continue
-		}
-		var process *socketProcess
-		for _, fd := range fdEntries {
-			if len(result) >= len(wanted) {
-				break
-			}
-			target, err := os.Readlink("/proc/" + pid + "/fd/" + fd.Name())
-			if err != nil {
-				continue
-			}
-			inode := parseSocketInode(target)
-			if !wanted[inode] {
-				continue
-			}
-			if process == nil {
-				info := readSocketProcess(pid)
-				process = &info
-			}
-			result[inode] = *process
-		}
-	}
-	return result
-}
-
-func readSocketProcess(pid string) socketProcess {
-	status := readText("/proc/" + pid + "/status")
-	name := matchStatus(status, "Name")
-	uid := matchStatus(status, "Uid")
-	cmd := strings.TrimSpace(strings.ReplaceAll(readText("/proc/"+pid+"/cmdline"), "\x00", " "))
-	pidNum, _ := strconv.Atoi(pid)
-	return socketProcess{
-		PID:     pidNum,
-		Name:    name,
-		Command: cmd,
-		User:    usernameForUID(uid),
-	}
-}
-
-func parseSocketInode(target string) string {
-	if !strings.HasPrefix(target, "socket:[") || !strings.HasSuffix(target, "]") {
-		return ""
-	}
-	return strings.TrimSuffix(strings.TrimPrefix(target, "socket:["), "]")
-}
-
-func parseSocketLocal(value, protocol string) (string, int) {
-	parts := strings.Split(value, ":")
-	if len(parts) != 2 {
-		return "", 0
-	}
-	portValue, err := strconv.ParseInt(parts[1], 16, 32)
+	port, err := strconv.ParseInt(value[separator+1:], 16, 32)
 	if err != nil {
-		return "", 0
+		return 0
 	}
-	if strings.HasSuffix(protocol, "6") {
-		return parseIPv6Hex(parts[0]), int(portValue)
-	}
-	return parseIPv4Hex(parts[0]), int(portValue)
-}
-
-func parseIPv4Hex(value string) string {
-	if len(value) != 8 {
-		return value
-	}
-	bytes := make([]byte, 4)
-	for i := 0; i < 4; i++ {
-		parsed, err := strconv.ParseUint(value[(3-i)*2:(4-i)*2], 16, 8)
-		if err != nil {
-			return value
-		}
-		bytes[i] = byte(parsed)
-	}
-	return net.IPv4(bytes[0], bytes[1], bytes[2], bytes[3]).String()
-}
-
-func parseIPv6Hex(value string) string {
-	if len(value) != 32 {
-		return value
-	}
-	bytes := make([]byte, 16)
-	for word := 0; word < 4; word++ {
-		base := word * 8
-		for index := 0; index < 4; index++ {
-			start := base + (3-index)*2
-			parsed, err := strconv.ParseUint(value[start:start+2], 16, 8)
-			if err != nil {
-				return value
-			}
-			bytes[word*4+index] = byte(parsed)
-		}
-	}
-	return net.IP(bytes).String()
+	return int(port)
 }
 
 func usernameForUID(uid string) string {

@@ -9,18 +9,18 @@
 - CPU：总使用率、各核使用率、负载、频率、用户/系统/IO 等待/steal/idle 分项与温度。
 - 内存：已用、可用、缓存与 Swap 概览。
 - 磁盘：根分区容量、整机物理盘读写吞吐与 IO 忙碌度。
-- 网络：主要地址、网卡数量、错误与丢包、TCP 状态及 TCP/UDP 监听端口。
-- 端口：TCP/UDP 监听端口及可读取的进程归属。
-- 系统：顶部主机摘要、开机时间、运行时长、PSI、CPU 温度与文件句柄。
+- 网络：物理网口累计流量、实时吞吐、包速率、错误与丢包。
+- 进程与网络状态：Top CPU/内存进程、线程、RSS/VSZ、TCP 状态及 TCP/UDP 监听数量；不枚举具体端口或进程归属。
+- 系统：顶部主机摘要、开机时间、运行时长、CPU 温度与历史趋势。
 - 部署：静态资源内嵌二进制、Linux amd64/arm64 Release、校验和、systemd 管理、开机自启与异常退出重启。
 
-从 v0.1.1 起，页面不再显示硬件详情、主机详情、文件系统、内存细节和网络细节五块区域。v0.1.4 移除了网络吞吐六项展示、两张趋势图和进程热点采集，采样频率固定为至少一秒一次；API 不再返回进程热点字段。网络汇总、UDP 监听与磁盘百分比口径见下文。
+从 v0.1.1 起，页面不再显示硬件详情、主机详情、文件系统、内存细节和网络细节五块区域。v0.1.6 移除网络卡片与进程热点表之间的六项补充指标及两张趋势图，并移除端口占用明细列表；网络吞吐卡片、进程热点表及 TCP/UDP 监听数量保留。采样间隔下限为一秒。网络汇总、UDP 监听与磁盘百分比口径见下文。
 
 ## 使用边界
 
 面板**没有登录鉴权**，会显示主机、进程名称、命令行和网络信息。仅在可信局域网使用，不要直接开放到公网；需要远程访问时请绑定 `127.0.0.1` 并使用 SSH 隧道，或在反向代理层添加 TLS 与鉴权。只读监控不提供上传、删除文件或执行系统命令的 API。
 
-服务建议以普通用户运行。受 Linux 权限限制，部分其他用户进程、端口归属或硬件信息可能不可见，页面按实际可读取结果展示。数据保存在内存中，重启服务会清空历史趋势；程序只负责监控，不负责代理网络或自动修复断网。
+服务建议以普通用户运行。受 Linux 权限限制，部分其他用户进程或硬件信息可能不可见，页面按实际可读取结果展示。数据保存在内存中，重启服务会清空历史趋势；程序只负责监控，不负责代理网络或自动修复断网。
 
 ## 项目结构
 
@@ -50,17 +50,17 @@ Release 压缩包在以上目录基础上包含 `bin/server-panel`；无需在�
 安装和服务管理需要 Bash、systemd、curl、tar、sha256sum，以及系统自带的 awk、sed、install、mktemp、id 工具。
 
 ```bash
-release_tag=v0.1.5
+release_tag=v0.1.6
 release_url="https://github.com/lonnnnnng/server-panel/releases/download/$release_tag"
 mkdir -p "$HOME/server-panel-download"
 cd "$HOME/server-panel-download"
-curl -fL --retry 3 -O "$release_url/server-panel_0.1.5_linux_amd64.tar.gz"
+curl -fL --retry 3 -O "$release_url/server-panel_0.1.6_linux_amd64.tar.gz"
 curl -fL --retry 3 -O "$release_url/SHA256SUMS"
-grep '  server-panel_0.1.5_linux_amd64.tar.gz$' SHA256SUMS | sha256sum -c -
+grep '  server-panel_0.1.6_linux_amd64.tar.gz$' SHA256SUMS | sha256sum -c -
 
 # 首次安装要求目标目录不存在，避免覆盖其他项目。
 test ! -e "$HOME/server-panel"
-tar -xzf server-panel_0.1.5_linux_amd64.tar.gz -C "$HOME"
+tar -xzf server-panel_0.1.6_linux_amd64.tar.gz -C "$HOME"
 cd "$HOME/server-panel"
 sudo ./scripts/service.sh install --user lee
 ./scripts/service.sh health
@@ -133,11 +133,11 @@ node scripts/verify-live.cjs http://服务器局域网IP:8888
 
 ```bash
 ./scripts/release.sh
-git tag -a v0.1.5 -m '发布服务器面板 v0.1.5'
-git push origin main v0.1.5
-gh release create v0.1.5 dist/server-panel_0.1.5_linux_amd64.tar.gz \
-  dist/server-panel_0.1.5_linux_arm64.tar.gz dist/SHA256SUMS \
-  --verify-tag --title 'Server Panel v0.1.5' --notes-file CHANGELOG.md
+git tag -a v0.1.6 -m '发布服务器面板 v0.1.6'
+git push origin main v0.1.6
+gh release create v0.1.6 dist/server-panel_0.1.6_linux_amd64.tar.gz \
+  dist/server-panel_0.1.6_linux_arm64.tar.gz dist/SHA256SUMS \
+  --verify-tag --title 'Server Panel v0.1.6' --notes-file CHANGELOG.md
 ```
 
 发布脚本拒绝未提交的源码，二进制注入实际提交哈希；`SHA256SUMS` 对应两个 Release 压缩包。构建使用 `CGO_ENABLED=0`，避免依赖构建机的动态 libc。
@@ -153,11 +153,11 @@ gh release create v0.1.5 dist/server-panel_0.1.5_linux_amd64.tar.gz \
 - 网卡或系统重启会重置累计值；速率逐网口/设备使用真实采样耗时计算，新设备和重置后的首帧不继承旧累计量。首帧尚无差分基线时显示未知。
 - 根分区使用率按 `ceil(used/(used+available)*100)` 对齐 df，分母排除保留块；已用/总量字节仍保留原始容量。找不到根挂载时不以其他挂载冒充。
 - 磁盘明细包含物理设备和映射设备，汇总优先仅统计整机物理整盘（虚拟机中的 vd/xvd 视为整盘）；busy 为相同设备集合的最高忙碌比例，不是带宽饱和度，也不是根分区独占 IO。无整盘时标注逻辑设备回退，可能重复。
-- TCP LISTEN、UDP UNCONN(07) 按套接字计数，IPv4/IPv6 同端口可分别计数；端口号列表去重，监听列表不再静默截断。权限不足或进程退出会导致归属未知，共享 socket 最多显示一个拥有者，不为补齐归属提权。
-- 端口归属仅在列出监听 socket 时按需读取 `/proc` 文件描述符，不再周期性遍历所有进程或读取完整命令行。
+- TCP LISTEN、UDP UNCONN(07) 按套接字计数，IPv4/IPv6 同端口可分别计数；不枚举具体端口，也不扫描 `/proc/<pid>/fd` 推断 socket 所属进程。
+- 进程 CPU 自动读取 `getconf CLK_TCK`，检测失败保留未知；校验 starttime 防 PID 复用，单核 100% 口径允许多线程进程超过 100%。
 - PSI 展示 avg10 百分比，some/full 分别指至少一个/全部非空闲任务阻塞。核心采集失败通过 `valid`、`rateValid` 标识，页面显示 `--`；这些标识不保证每个辅助硬件字段都有有效性元数据。
 - 温度读取 thermal_zone 及受识别 CPU 类型的 hwmon，毫摄氏度统一除以 1000；无法确认 CPU 传感器时不拿其他设备温度代替。
-- 静态硬件参数缓存 30 秒，动态频率、可用内存、Swap 和网卡状态随当前采样刷新。历史摘要仅供 API 兼容，服务重启后清空。
+- 静态硬件参数缓存 30 秒，动态频率、可用内存、Swap 和网卡状态随当前采样刷新。趋势包含当前帧，只保存摘要，服务重启清空。
 - 不展示 machine-id、产品 UUID、序列号、磁盘序列号和 MAC 地址等唯一标识；页面仍包含运维敏感信息，须遵守前述访问边界。
 
 ## 来源

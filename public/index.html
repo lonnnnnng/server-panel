@@ -165,12 +165,40 @@
           <div class="card-head">
             <div>
               <span class="label network-label">Network</span>
-              <h2>网络状态</h2>
+              <h2>网络吞吐</h2>
             </div>
             <strong id="activeIfaces" class="metric-value">--</strong>
           </div>
           <p id="networkScope" class="muted">物理网口汇总</p>
+          <div class="rate-pair large">
+            <div>
+              <span>入站</span>
+              <strong id="rxRate">--</strong>
+            </div>
+            <div>
+              <span>出站</span>
+              <strong id="txRate">--</strong>
+            </div>
+          </div>
+          <div class="traffic-total-grid" aria-label="累计流量">
+            <div>
+              <span>累计接收</span>
+              <strong id="rxTotal">--</strong>
+            </div>
+            <div>
+              <span>累计发送</span>
+              <strong id="txTotal">--</strong>
+            </div>
+            <div>
+              <span>累计总量</span>
+              <strong id="trafficTotal">--</strong>
+            </div>
+          </div>
           <dl class="metric-list">
+            <div>
+              <dt>包速率</dt>
+              <dd id="packetRate">--</dd>
+            </div>
             <div>
               <dt>错误 / 丢包</dt>
               <dd id="netErrorsDrops">--</dd>
@@ -187,53 +215,89 @@
         </article>
       </section>
 
-      <section class="stat-strip" aria-label="补充指标">
-        <div>
-          <span title="过去 10 秒内受 CPU 资源阻塞的时间比例">CPU PSI · avg10</span>
-          <strong id="pressureCpu">--</strong>
-        </div>
-        <div>
-          <span title="some 为至少一个任务阻塞，full 为所有非空闲任务阻塞">内存 PSI · avg10</span>
-          <strong id="pressureMemory">--</strong>
-        </div>
-        <div>
-          <span title="some 为至少一个任务阻塞，full 为所有非空闲任务阻塞">IO PSI · avg10</span>
-          <strong id="pressureIo">--</strong>
-        </div>
-        <div>
-          <span>文件句柄</span>
-          <strong id="fileHandles">--</strong>
-        </div>
-        <div>
-          <span>TCP 总数</span>
-          <strong id="tcpTotal">--</strong>
-        </div>
+
+      <section class="chart-grid" aria-label="趋势图">
+        <article class="panel chart-panel">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">Utilization</p>
+              <h2>资源利用率趋势</h2>
+            </div>
+            <div class="legend">
+              <span><i class="cpu-line"></i>CPU</span>
+              <span><i class="mem-line"></i>内存</span>
+              <span><i class="disk-line"></i>磁盘</span>
+              <span><i class="load-line"></i>负载</span>
+            </div>
+          </div>
+          <canvas id="utilizationChart" width="900" height="280"></canvas>
+        </article>
+        <article class="panel chart-panel">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">Throughput</p>
+              <h2>网络与磁盘吞吐</h2>
+            </div>
+            <div class="legend">
+              <span><i class="rx-line"></i>RX</span>
+              <span><i class="tx-line"></i>TX</span>
+              <span><i class="read-line"></i>读</span>
+              <span><i class="write-line"></i>写</span>
+            </div>
+          </div>
+          <canvas id="throughputChart" width="900" height="280"></canvas>
+        </article>
       </section>
 
       <section class="detail-grid">
         <article class="panel wide">
           <div class="section-heading compact">
-            <h2>端口占用</h2>
+            <h2>进程热点</h2>
           </div>
-          <div class="table-scroll">
-            <table class="port-table">
-              <thead>
-                <tr>
-                  <th>协议</th>
-                  <th>本地地址</th>
-                  <th>端口</th>
-                  <th>PID</th>
-                  <th>用户</th>
-                  <th>进程</th>
-                  <th>命令</th>
-                </tr>
-              </thead>
-              <tbody id="portListeners">
-                <tr>
-                  <td colspan="7">等待数据</td>
-                </tr>
-              </tbody>
-            </table>
+          <div class="process-grid">
+            <div>
+              <h3>CPU</h3>
+              <table>
+                <thead>
+                  <tr>
+                    <th>PID</th>
+                    <th>用户</th>
+                    <th>进程</th>
+                    <th>CPU</th>
+                    <th>RSS</th>
+                    <th>线程</th>
+                    <th>PPID</th>
+                  </tr>
+                </thead>
+                <tbody id="topCpuTable">
+                  <tr>
+                    <td colspan="7">等待数据</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <div>
+              <h3>内存</h3>
+              <table>
+                <thead>
+                  <tr>
+                    <th>PID</th>
+                    <th>进程</th>
+                    <th>RSS</th>
+                    <th>占比</th>
+                    <th>VSZ</th>
+                    <th>匿名</th>
+                    <th>文件页</th>
+                    <th>Swap</th>
+                  </tr>
+                </thead>
+                <tbody id="topMemoryTable">
+                  <tr>
+                    <td colspan="8">等待数据</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
           </div>
         </article>
       </section>

@@ -98,9 +98,19 @@ func TestSimplifiedDashboardAssets(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, removed := range []string{"进程热点", "utilizationChart", "throughputChart", "rxRate", "txRate", "rxTotal", "txTotal", "trafficTotal", "packetRate", "topCpuTable", "topMemoryTable", "processSummary"} {
+	for _, removed := range []string{`class="stat-strip"`, "pressureCpu", "pressureMemory", "pressureIo", "fileHandles", "processSummary", "tcpTotal"} {
 		if strings.Contains(string(html), removed) {
 			t.Errorf("removed dashboard content still present: %s", removed)
+		}
+	}
+	for _, heading := range []string{"网络吞吐", "进程热点"} {
+		if !strings.Contains(string(html), "<h2>"+heading+"</h2>") {
+			t.Errorf("required dashboard section missing: %s", heading)
+		}
+	}
+	for _, id := range []string{"rxRate", "txRate", "rxTotal", "txTotal", "trafficTotal", "packetRate", "utilizationChart", "throughputChart", "topCpuTable", "topMemoryTable"} {
+		if !strings.Contains(string(html), `id="`+id+`"`) {
+			t.Errorf("required dashboard element missing: %s", id)
 		}
 	}
 	// long: 开机日期与持续运行时长成对阅读，日期应排在时长之前且只展示一次。
@@ -130,10 +140,16 @@ func TestSimplifiedDashboardAssets(t *testing.T) {
 			t.Errorf("removed detail heading still present: %s", heading)
 		}
 	}
-	for _, id := range []string{"cpuValue", "memoryValue", "diskValue", "netErrorsDrops", "tcpEstablished", "tcpListening", "portListeners"} {
+	for _, id := range []string{"cpuValue", "memoryValue", "diskValue", "netErrorsDrops", "tcpEstablished", "tcpListening"} {
 		if !strings.Contains(string(html), `id="`+id+`"`) {
 			t.Errorf("required dashboard element missing: %s", id)
 		}
+	}
+	if strings.Contains(string(html), "端口占用") || strings.Contains(string(html), `id="portListeners"`) {
+		t.Fatal("port occupancy list must be removed")
+	}
+	if strings.Contains(string(script), "renderPortListeners") || strings.Contains(string(script), "portListeners") {
+		t.Fatal("port occupancy frontend code must be removed")
 	}
 }
 
