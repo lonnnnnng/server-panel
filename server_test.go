@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -88,6 +89,39 @@ func TestRoutesAndEmbeddedAssets(t *testing.T) {
 		handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodPost, path, nil))
 		if recorder.Code != http.StatusMethodNotAllowed {
 			t.Fatalf("POST %s must not be accepted", path)
+		}
+	}
+}
+
+func TestSimplifiedDashboardAssets(t *testing.T) {
+	html, err := publicFiles.ReadFile("public/index.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	script, err := publicFiles.ReadFile("public/app.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// long: 页面精简时必须同步清理绑定，避免首次指标更新访问已删除的 DOM 并中断后续刷新。
+	bindings := regexp.MustCompile(`byId\('([^']+)'\)`).FindAllStringSubmatch(string(script), -1)
+	for _, binding := range bindings {
+		if !strings.Contains(string(html), `id="`+binding[1]+`"`) {
+			t.Errorf("frontend references missing DOM element: %s", binding[1])
+		}
+	}
+	for _, id := range []string{"hardware", "hostGroups", "localAddresses", "tempZones", "fsList", "memoryDetails", "interfaces", "tcpStates"} {
+		if strings.Contains(string(html), `id="`+id+`"`) {
+			t.Errorf("removed detail element still present: %s", id)
+		}
+	}
+	for _, heading := range []string{"硬件详情", "主机", "文件系统", "内存细节", "网络细节"} {
+		if strings.Contains(string(html), "<h2>"+heading+"</h2>") {
+			t.Errorf("removed detail heading still present: %s", heading)
+		}
+	}
+	for _, id := range []string{"cpuValue", "memoryValue", "diskValue", "rxRate", "utilizationChart", "throughputChart", "portListeners", "topCpuTable", "topMemoryTable"} {
+		if !strings.Contains(string(html), `id="`+id+`"`) {
+			t.Errorf("required dashboard element missing: %s", id)
 		}
 	}
 }

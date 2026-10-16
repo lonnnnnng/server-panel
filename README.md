@@ -7,13 +7,14 @@
 ## 功能
 
 - CPU：总使用率、各核使用率、负载、频率、用户/系统/IO 等待/steal/idle 分项与温度。
-- 内存：物理内存、Swap、缓存、slab、Active/Inactive、Dirty、匿名页、页表、Commit 等明细。
-- 磁盘：根分区、全部文件系统、整盘读写吞吐、IOPS、忙碌度及设备明细。
-- 网络：网卡状态、速率、双工、MTU、驱动、IPv4 地址、累计流量、实时吞吐、包速率、错误与丢包。
-- 硬件：主板/BIOS、CPU、内存页与 NUMA、硬盘、显卡、网卡型号。
+- 内存：已用、可用、缓存与 Swap 概览。
+- 磁盘：根分区容量、读写吞吐与 IO 忙碌度。
+- 网络：主要地址、累计流量、实时吞吐、包速率、错误与丢包。
 - 进程与端口：Top CPU/内存进程、线程、RSS/VSZ、TCP 状态、TCP/UDP 监听端口与所属进程。
-- 系统：主机、OS、内核、架构、开机时间、时区、虚拟化/容器、PSI、温度、文件句柄与历史趋势。
+- 系统：顶部主机摘要、运行时长、PSI、CPU 温度、文件句柄与历史趋势。
 - 部署：静态资源内嵌二进制、Linux amd64/arm64 Release、校验和、systemd 管理、开机自启与异常退出重启。
+
+从 v0.1.1 起，页面不再显示硬件详情、主机详情、文件系统、内存细节和网络细节五块区域；后端指标接口保持兼容，仍会返回原有指标字段。
 
 ## 使用边界
 
@@ -47,17 +48,17 @@ Release 压缩包在以上目录基础上包含 `bin/server-panel`；无需在�
 安装和服务管理需要 Bash、systemd、curl、tar、sha256sum，以及系统自带的 awk、sed、install、mktemp、id 工具。
 
 ```bash
-release_tag=v0.1.0
+release_tag=v0.1.1
 release_url="https://github.com/lonnnnnng/server-panel/releases/download/$release_tag"
 mkdir -p "$HOME/server-panel-download"
 cd "$HOME/server-panel-download"
-curl -fL --retry 3 -O "$release_url/server-panel_0.1.0_linux_amd64.tar.gz"
+curl -fL --retry 3 -O "$release_url/server-panel_0.1.1_linux_amd64.tar.gz"
 curl -fL --retry 3 -O "$release_url/SHA256SUMS"
-grep '  server-panel_0.1.0_linux_amd64.tar.gz$' SHA256SUMS | sha256sum -c -
+grep '  server-panel_0.1.1_linux_amd64.tar.gz$' SHA256SUMS | sha256sum -c -
 
 # 首次安装要求目标目录不存在，避免覆盖其他项目。
 test ! -e "$HOME/server-panel"
-tar -xzf server-panel_0.1.0_linux_amd64.tar.gz -C "$HOME"
+tar -xzf server-panel_0.1.1_linux_amd64.tar.gz -C "$HOME"
 cd "$HOME/server-panel"
 sudo ./scripts/service.sh install --user lee
 ./scripts/service.sh health
@@ -124,11 +125,11 @@ curl -N http://127.0.0.1:8888/api/events
 
 ```bash
 ./scripts/release.sh
-git tag -a v0.1.0 -m '发布服务器面板 v0.1.0'
-git push origin main v0.1.0
-gh release create v0.1.0 dist/server-panel_0.1.0_linux_amd64.tar.gz \
-  dist/server-panel_0.1.0_linux_arm64.tar.gz dist/SHA256SUMS \
-  --verify-tag --title 'Server Panel v0.1.0' --notes-file CHANGELOG.md
+git tag -a v0.1.1 -m '发布服务器面板 v0.1.1'
+git push origin main v0.1.1
+gh release create v0.1.1 dist/server-panel_0.1.1_linux_amd64.tar.gz \
+  dist/server-panel_0.1.1_linux_arm64.tar.gz dist/SHA256SUMS \
+  --verify-tag --title 'Server Panel v0.1.1' --notes-file CHANGELOG.md
 ```
 
 发布脚本拒绝未提交的源码，二进制注入实际提交哈希；`SHA256SUMS` 对应两个 Release 压缩包。构建使用 `CGO_ENABLED=0`，避免依赖构建机的动态 libc。
