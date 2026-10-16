@@ -27,7 +27,8 @@ for panel_arch in amd64 arm64; do
   CGO_ENABLED=0 GOOS=linux GOARCH="$panel_arch" go build -trimpath -buildvcs=false \
     -ldflags "-s -w -X main.version=$panel_version -X main.commit=$panel_commit -X main.buildTime=$panel_time" \
     -o "$panel_stage/server-panel/bin/server-panel" .
-  tar -czf "dist/server-panel_${panel_version}_linux_${panel_arch}.tar.gz" -C "$panel_stage" server-panel
+  # long: macOS 构建时不能把 Finder 扩展属性带进 Linux 包，否则 GNU tar 解压会持续告警。
+  COPYFILE_DISABLE=1 tar --no-xattrs -czf "dist/server-panel_${panel_version}_linux_${panel_arch}.tar.gz" -C "$panel_stage" server-panel
   cleanup_stage
   panel_stage=""
 done
