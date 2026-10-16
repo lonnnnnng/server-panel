@@ -3,12 +3,10 @@ package main
 import (
 	"math"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
-	"sync"
 )
 
 func validValue(value float64, valid bool) *float64 {
@@ -134,49 +132,6 @@ func calculateNetwork(current, previous *NetworkRaw) NetworkMetrics {
 func interfaceIsUp(name string) bool {
 	flags, err := strconv.ParseUint(strings.TrimSpace(readText("/sys/class/net/"+name+"/flags")), 0, 64)
 	return err == nil && flags&1 != 0
-}
-
-type ProcSample struct {
-	Ticks     uint64
-	StartTime uint64
-	Valid     bool
-}
-
-func parseProcSample(stat string) ProcSample {
-	end := strings.LastIndex(stat, ") ")
-	if end < 0 {
-		return ProcSample{}
-	}
-	fields := strings.Fields(stat[end+2:])
-	if len(fields) < 20 {
-		return ProcSample{}
-	}
-	user, e1 := strconv.ParseUint(fields[11], 10, 64)
-	system, e2 := strconv.ParseUint(fields[12], 10, 64)
-	start, e3 := strconv.ParseUint(fields[19], 10, 64)
-	return ProcSample{Ticks: user + system, StartTime: start, Valid: e1 == nil && e2 == nil && e3 == nil}
-}
-
-func processCPU(current, previous ProcSample, hz, seconds float64) (float64, bool) {
-	// long: PID 可被复用；只有启动时刻相同的进程才能沿用上帧 CPU 计数。
-	if !current.Valid || !previous.Valid || current.StartTime != previous.StartTime || current.Ticks < previous.Ticks || hz <= 0 || seconds <= 0 {
-		return 0, false
-	}
-	return float64(current.Ticks-previous.Ticks) / hz / seconds * 100, true
-}
-
-var tickOnce sync.Once
-var tickHz float64
-
-func clockTicks() float64 {
-	tickOnce.Do(func() {
-		// long: USER_HZ 由运行系统决定，检测失败时保留未知，不能假设所有 Linux 都为 100。
-		out, err := exec.Command("getconf", "CLK_TCK").Output()
-		if err == nil {
-			tickHz, _ = strconv.ParseFloat(strings.TrimSpace(string(out)), 64)
-		}
-	})
-	return tickHz
 }
 
 func readCPUHwmonTemperatures() []TempZone {

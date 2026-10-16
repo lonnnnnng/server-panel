@@ -17,15 +17,15 @@ func TestConfigDefaultAndOverrides(t *testing.T) {
 		t.Setenv(key, "")
 	}
 	cfg, err := loadConfig()
-	if err != nil || cfg.Port != "8888" || cfg.Host != "0.0.0.0" || cfg.History != 120 || cfg.Interval != 500*time.Millisecond {
+	if err != nil || cfg.Port != "8888" || cfg.Host != "0.0.0.0" || cfg.History != 120 || cfg.Interval != time.Second {
 		t.Fatalf("unexpected default config: %+v, %v", cfg, err)
 	}
 	t.Setenv("PORT", "9001")
 	t.Setenv("HOST", "127.0.0.1")
-	t.Setenv("SAMPLE_INTERVAL_MS", "250")
+	t.Setenv("SAMPLE_INTERVAL_MS", "1250")
 	t.Setenv("MAX_HISTORY", "30")
 	cfg, err = loadConfig()
-	if err != nil || cfg.Port != "9001" || cfg.Host != "127.0.0.1" || cfg.History != 30 || cfg.Interval != 250*time.Millisecond {
+	if err != nil || cfg.Port != "9001" || cfg.Host != "127.0.0.1" || cfg.History != 30 || cfg.Interval != 1250*time.Millisecond {
 		t.Fatalf("override not applied: %+v, %v", cfg, err)
 	}
 }
@@ -33,7 +33,7 @@ func TestConfigDefaultAndOverrides(t *testing.T) {
 func TestInvalidConfigFailsClosed(t *testing.T) {
 	for _, tc := range []struct{ key, value string }{
 		{"PORT", "0"}, {"PORT", "65536"}, {"PORT", "invalid"},
-		{"SAMPLE_INTERVAL_MS", "-1"}, {"SAMPLE_INTERVAL_MS", "99"}, {"SAMPLE_INTERVAL_MS", "60001"},
+		{"SAMPLE_INTERVAL_MS", "-1"}, {"SAMPLE_INTERVAL_MS", "999"}, {"SAMPLE_INTERVAL_MS", "60001"},
 		{"MAX_HISTORY", "0"}, {"MAX_HISTORY", "3601"},
 	} {
 		t.Run(tc.key+"="+tc.value, func(t *testing.T) {
@@ -98,11 +98,10 @@ func TestSimplifiedDashboardAssets(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// long: DOM 顺序与视觉顺序一致，桌面、移动端和辅助阅读都应先看到进程热点。
-	processPosition := strings.Index(string(html), "<h2>进程热点</h2>")
-	portPosition := strings.Index(string(html), "<h2>端口占用</h2>")
-	if processPosition < 0 || portPosition < 0 || processPosition >= portPosition {
-		t.Fatal("process hotspots must appear before port listeners")
+	for _, removed := range []string{"进程热点", "utilizationChart", "throughputChart", "rxRate", "txRate", "rxTotal", "txTotal", "trafficTotal", "packetRate", "topCpuTable", "topMemoryTable", "processSummary"} {
+		if strings.Contains(string(html), removed) {
+			t.Errorf("removed dashboard content still present: %s", removed)
+		}
 	}
 	// long: 开机日期与持续运行时长成对阅读，日期应排在时长之前且只展示一次。
 	bootPosition := strings.Index(string(html), `id="bootTimeBadge"`)
@@ -131,7 +130,7 @@ func TestSimplifiedDashboardAssets(t *testing.T) {
 			t.Errorf("removed detail heading still present: %s", heading)
 		}
 	}
-	for _, id := range []string{"cpuValue", "memoryValue", "diskValue", "rxRate", "utilizationChart", "throughputChart", "portListeners", "topCpuTable", "topMemoryTable"} {
+	for _, id := range []string{"cpuValue", "memoryValue", "diskValue", "netErrorsDrops", "tcpEstablished", "tcpListening", "portListeners"} {
 		if !strings.Contains(string(html), `id="`+id+`"`) {
 			t.Errorf("required dashboard element missing: %s", id)
 		}

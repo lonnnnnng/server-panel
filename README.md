@@ -9,12 +9,12 @@
 - CPU：总使用率、各核使用率、负载、频率、用户/系统/IO 等待/steal/idle 分项与温度。
 - 内存：已用、可用、缓存与 Swap 概览。
 - 磁盘：根分区容量、整机物理盘读写吞吐与 IO 忙碌度。
-- 网络：主要地址、物理网口累计流量、实时吞吐、包速率、错误与丢包。
-- 进程与端口：Top CPU/内存进程、线程、RSS/VSZ、TCP 状态、TCP/UDP 监听端口与所属进程。
-- 系统：顶部主机摘要、开机时间、运行时长、PSI、CPU 温度、文件句柄与历史趋势。
+- 网络：主要地址、网卡数量、错误与丢包、TCP 状态及 TCP/UDP 监听端口。
+- 端口：TCP/UDP 监听端口及可读取的进程归属。
+- 系统：顶部主机摘要、开机时间、运行时长、PSI、CPU 温度与文件句柄。
 - 部署：静态资源内嵌二进制、Linux amd64/arm64 Release、校验和、systemd 管理、开机自启与异常退出重启。
 
-从 v0.1.1 起，页面不再显示硬件详情、主机详情、文件系统、内存细节和网络细节五块区域。v0.1.3 保留原有 API 字段，新增有效性及统计范围字段；历史缺失读数改为 `null`，网络汇总、UDP 监听与磁盘百分比口径见下文，API 使用者需同步处理。
+从 v0.1.1 起，页面不再显示硬件详情、主机详情、文件系统、内存细节和网络细节五块区域。v0.1.4 移除了网络吞吐六项展示、两张趋势图和进程热点采集，采样频率固定为至少一秒一次；API 不再返回进程热点字段。网络汇总、UDP 监听与磁盘百分比口径见下文。
 
 ## 使用边界
 
@@ -50,17 +50,17 @@ Release 压缩包在以上目录基础上包含 `bin/server-panel`；无需在�
 安装和服务管理需要 Bash、systemd、curl、tar、sha256sum，以及系统自带的 awk、sed、install、mktemp、id 工具。
 
 ```bash
-release_tag=v0.1.3
+release_tag=v0.1.4
 release_url="https://github.com/lonnnnnng/server-panel/releases/download/$release_tag"
 mkdir -p "$HOME/server-panel-download"
 cd "$HOME/server-panel-download"
-curl -fL --retry 3 -O "$release_url/server-panel_0.1.3_linux_amd64.tar.gz"
+curl -fL --retry 3 -O "$release_url/server-panel_0.1.4_linux_amd64.tar.gz"
 curl -fL --retry 3 -O "$release_url/SHA256SUMS"
-grep '  server-panel_0.1.3_linux_amd64.tar.gz$' SHA256SUMS | sha256sum -c -
+grep '  server-panel_0.1.4_linux_amd64.tar.gz$' SHA256SUMS | sha256sum -c -
 
 # 首次安装要求目标目录不存在，避免覆盖其他项目。
 test ! -e "$HOME/server-panel"
-tar -xzf server-panel_0.1.3_linux_amd64.tar.gz -C "$HOME"
+tar -xzf server-panel_0.1.4_linux_amd64.tar.gz -C "$HOME"
 cd "$HOME/server-panel"
 sudo ./scripts/service.sh install --user lee
 ./scripts/service.sh health
@@ -94,12 +94,12 @@ sudo ./scripts/service.sh uninstall   # 停止并取消服务注册，保留源�
 | --- | --- | --- |
 | `HOST` | `0.0.0.0` | 监听地址；仅本机访问时用 `127.0.0.1` |
 | `PORT` | `8888` | 1–65535，避免与其他服务冲突 |
-| `SAMPLE_INTERVAL_MS` | `500` | 100–60000 毫秒；默认每秒采集并推送两次，所有指标共用该周期 |
+| `SAMPLE_INTERVAL_MS` | `1000` | 1000–60000 毫秒；默认每秒采集并推送一次，所有指标共用该周期 |
 | `MAX_HISTORY` | `120` | 1–3600 个采样点，越大越占内存 |
 
 配置使用示例中的不带引号 `KEY=value` 格式。文件由 systemd 作为 EnvironmentFile 读取，二进制不会自行加载配置文件；前台运行时请显式传入环境变量。错误的数值配置会阻止启动，不会偷偷使用其他端口。
 
-已有安装不会覆盖实际配置；要加快刷新，请将 `config/server-panel.env` 中的 `SAMPLE_INTERVAL_MS` 改为 `500` 后重启服务。默认历史仍为 120 个采样点，500 毫秒间隔下约覆盖最近 1 分钟。详情区域先显示进程热点，再显示端口占用。
+已有安装不会覆盖实际配置；升级后请确认 `config/server-panel.env` 中的 `SAMPLE_INTERVAL_MS` 不低于 `1000`，然后重启服务。采样周期不能低于 1 秒，避免频繁系统采集增加 CPU 开销。
 
 ## 源码运行与验证
 
@@ -133,11 +133,11 @@ node scripts/verify-live.cjs http://服务器局域网IP:8888
 
 ```bash
 ./scripts/release.sh
-git tag -a v0.1.3 -m '发布服务器面板 v0.1.3'
-git push origin main v0.1.3
-gh release create v0.1.3 dist/server-panel_0.1.3_linux_amd64.tar.gz \
-  dist/server-panel_0.1.3_linux_arm64.tar.gz dist/SHA256SUMS \
-  --verify-tag --title 'Server Panel v0.1.3' --notes-file CHANGELOG.md
+git tag -a v0.1.4 -m '发布服务器面板 v0.1.4'
+git push origin main v0.1.4
+gh release create v0.1.4 dist/server-panel_0.1.4_linux_amd64.tar.gz \
+  dist/server-panel_0.1.4_linux_arm64.tar.gz dist/SHA256SUMS \
+  --verify-tag --title 'Server Panel v0.1.4' --notes-file CHANGELOG.md
 ```
 
 发布脚本拒绝未提交的源码，二进制注入实际提交哈希；`SHA256SUMS` 对应两个 Release 压缩包。构建使用 `CGO_ENABLED=0`，避免依赖构建机的动态 libc。
@@ -154,10 +154,10 @@ gh release create v0.1.3 dist/server-panel_0.1.3_linux_amd64.tar.gz \
 - 根分区使用率按 `ceil(used/(used+available)*100)` 对齐 df，分母排除保留块；已用/总量字节仍保留原始容量。找不到根挂载时不以其他挂载冒充。
 - 磁盘明细包含物理设备和映射设备，汇总优先仅统计整机物理整盘（虚拟机中的 vd/xvd 视为整盘）；busy 为相同设备集合的最高忙碌比例，不是带宽饱和度，也不是根分区独占 IO。无整盘时标注逻辑设备回退，可能重复。
 - TCP LISTEN、UDP UNCONN(07) 按套接字计数，IPv4/IPv6 同端口可分别计数；端口号列表去重，监听列表不再静默截断。权限不足或进程退出会导致归属未知，共享 socket 最多显示一个拥有者，不为补齐归属提权。
-- 进程 CPU 自动读取 `getconf CLK_TCK`，检测失败保留未知；校验 starttime 防 PID 复用，单核 100% 口径允许多线程进程超过 100%。进程/R 是可读取进程与主线程瞬间 R 数，不是全系统运行线程数。
-- PSI 展示 avg10 百分比，some/full 分别指至少一个/全部非空闲任务阻塞。核心采集失败通过 `valid`、`rateValid` 标识，页面显示 `--`，趋势缺失点为 `null`；这些标识不保证每个辅助硬件字段都有有效性元数据。
+- 端口归属仅在列出监听 socket 时按需读取 `/proc` 文件描述符，不再周期性遍历所有进程或读取完整命令行。
+- PSI 展示 avg10 百分比，some/full 分别指至少一个/全部非空闲任务阻塞。核心采集失败通过 `valid`、`rateValid` 标识，页面显示 `--`；这些标识不保证每个辅助硬件字段都有有效性元数据。
 - 温度读取 thermal_zone 及受识别 CPU 类型的 hwmon，毫摄氏度统一除以 1000；无法确认 CPU 传感器时不拿其他设备温度代替。
-- 静态硬件参数缓存 30 秒，动态频率、可用内存、Swap 和网卡状态随当前采样刷新。趋势包含当前帧，只保存摘要，服务重启清空。
+- 静态硬件参数缓存 30 秒，动态频率、可用内存、Swap 和网卡状态随当前采样刷新。历史摘要仅供 API 兼容，服务重启后清空。
 - 不展示 machine-id、产品 UUID、序列号、磁盘序列号和 MAC 地址等唯一标识；页面仍包含运维敏感信息，须遵守前述访问边界。
 
 ## 来源

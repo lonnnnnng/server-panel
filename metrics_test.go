@@ -122,27 +122,6 @@ func TestDiskScopeBusyAndHotplug(t *testing.T) {
 	}
 }
 
-func TestProcessIdentityAndClockTicks(t *testing.T) {
-	fields := strings.Fields("S 1 2 3 4 5 6 7 8 9 10 50 25 13 14 15 16 17 18 12345")
-	sample := parseProcSample("123 (name with ) spaces) " + strings.Join(fields, " "))
-	if !sample.Valid || sample.Ticks != 75 || sample.StartTime != 12345 {
-		t.Fatalf("incorrect proc stat offsets: %+v", sample)
-	}
-	previous := ProcSample{Ticks: 25, StartTime: 12345, Valid: true}
-	value, ok := processCPU(sample, previous, 100, 0.25)
-	if !ok || value != 200 {
-		t.Fatalf("multicore CPU must allow >100: %v %v", value, ok)
-	}
-	previous.StartTime++
-	if _, ok := processCPU(sample, previous, 100, 1); ok {
-		t.Fatal("reused PID must not inherit old counter")
-	}
-	previous.StartTime--
-	if _, ok := processCPU(sample, previous, 0, 1); ok || parseProcSample("bad").Valid {
-		t.Fatal("unknown clock or unreadable stat must remain invalid")
-	}
-}
-
 func TestUDPSocketOnlyUnconnected(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "udp")
 	fixture := "header\n 0: 0100007F:0035 00000000:0000 07 0 0 0 1000 0 123\n 1: 0100007F:1111 0100007F:0035 01 0 0 0 1000 0 124\n"

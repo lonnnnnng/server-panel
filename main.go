@@ -22,7 +22,7 @@ import (
 const (
 	defaultPort       = "8888"
 	defaultHost       = "0.0.0.0"
-	defaultIntervalMs = 500
+	defaultIntervalMs = 1000
 	defaultHistory    = 120
 )
 
@@ -70,11 +70,6 @@ type DiskRaw struct {
 	Devices    map[string]DiskDevice
 }
 
-type ProcRaw struct {
-	Time      time.Time
-	Processes map[string]ProcSample
-}
-
 type AppState struct {
 	mu          sync.Mutex
 	latest      *Metrics
@@ -83,7 +78,6 @@ type AppState struct {
 	prevCPU     *CPUSnapshot
 	prevNetwork *NetworkRaw
 	prevDisk    *DiskRaw
-	prevProc    *ProcRaw
 	hardware    HardwareMetrics
 	hardwareAt  time.Time
 }
@@ -96,7 +90,6 @@ type Metrics struct {
 	Memory      MemoryMetrics   `json:"memory"`
 	Disk        DiskMetrics     `json:"disk"`
 	Network     NetworkMetrics  `json:"network"`
-	Processes   ProcMetrics     `json:"processes"`
 	TCP         TCPMetrics      `json:"tcp"`
 	Pressure    PressureSet     `json:"pressure"`
 	Temperature TempMetrics     `json:"temperature"`
@@ -391,38 +384,6 @@ type NetInterface struct {
 	TXPacketRate float64 `json:"txPacketRate"`
 }
 
-type ProcMetrics struct {
-	Valid     bool          `json:"valid"`
-	Total     int           `json:"total"`
-	Running   int           `json:"running"`
-	Sleeping  int           `json:"sleeping"`
-	Stopped   int           `json:"stopped"`
-	Zombie    int           `json:"zombie"`
-	Uptime    float64       `json:"uptime"`
-	TopMemory []ProcessInfo `json:"topMemory"`
-	TopCPU    []ProcessInfo `json:"topCpu"`
-}
-
-type ProcessInfo struct {
-	CPUValid      bool    `json:"cpuValid"`
-	PID           int     `json:"pid"`
-	PPID          int     `json:"ppid"`
-	UID           string  `json:"uid"`
-	User          string  `json:"user"`
-	Name          string  `json:"name"`
-	Command       string  `json:"command"`
-	State         string  `json:"state"`
-	Threads       int     `json:"threads"`
-	RSS           uint64  `json:"rss"`
-	VSZ           uint64  `json:"vsz"`
-	RssAnon       uint64  `json:"rssAnon"`
-	RssFile       uint64  `json:"rssFile"`
-	VmData        uint64  `json:"vmData"`
-	VmSwap        uint64  `json:"vmSwap"`
-	MemoryPercent float64 `json:"memoryPercent"`
-	CPU           float64 `json:"cpu"`
-}
-
 type TCPMetrics struct {
 	Valid        bool           `json:"valid"`
 	Partial      bool           `json:"partial"`
@@ -515,11 +476,10 @@ func (s *AppState) collect() error {
 	mem := readMemory()
 	disk := readDisk(s)
 	netm := readNetwork(s)
-	procs := readProcesses(s, mem.Total)
 	tcp := readTCP()
 	host := readHost()
 	metrics := &Metrics{
-		// long: 半秒采样必须保留亚秒时间，避免两帧指标和趋势点共享同一个秒级时间戳。
+		// long: 采样时间保留亚秒精度，避免系统时钟回拨或未来提速时多个采集帧共享秒级时间戳。
 		Timestamp:   now.Format(time.RFC3339Nano),
 		Host:        host,
 		Hardware:    s.readHardware(host, cpu, mem, disk, netm),
@@ -527,7 +487,6 @@ func (s *AppState) collect() error {
 		Memory:      mem,
 		Disk:        disk,
 		Network:     netm,
-		Processes:   procs,
 		TCP:         tcp,
 		Pressure:    readPressure(),
 		Temperature: readTemperature(),
@@ -890,89 +849,6 @@ func readNetwork(s *AppState) NetworkMetrics {
 	} else {
 		s.prevNetwork = nil
 	}
-	return result
-}
-
-func readProcesses(s *AppState, memoryTotal uint64) ProcMetrics {
-	entries, readErr := os.ReadDir("/proc")
-	now := time.Now()
-	previous := s.prevProc
-	seconds := 0.0
-	if previous != nil {
-		seconds = math.Max(now.Sub(previous.Time).Seconds(), 0.001)
-	}
-	current := &ProcRaw{Time: now, Processes: map[string]ProcSample{}}
-	var rows []ProcessInfo
-	result := ProcMetrics{Valid: readErr == nil, Uptime: readUptime()}
-	tickHz := clockTicks()
-	for _, entry := range entries {
-		if !entry.IsDir() || !isDigits(entry.Name()) {
-			continue
-		}
-		pid := entry.Name()
-		status := readText("/proc/" + pid + "/status")
-		if status == "" {
-			continue
-		}
-		name := matchStatus(status, "Name")
-		state := stringFirst(matchStatus(status, "State"))
-		rss := parseUint(matchStatus(status, "VmRSS")) * 1024
-		vsz := parseUint(matchStatus(status, "VmSize")) * 1024
-		rssAnon := parseUint(matchStatus(status, "RssAnon")) * 1024
-		rssFile := parseUint(matchStatus(status, "RssFile")) * 1024
-		vmData := parseUint(matchStatus(status, "VmData")) * 1024
-		vmSwap := parseUint(matchStatus(status, "VmSwap")) * 1024
-		ppid := int(parseUint(matchStatus(status, "PPid")))
-		uid := matchStatus(status, "Uid")
-		threads := int(parseUint(matchStatus(status, "Threads")))
-		sample := parseProcSample(readText("/proc/" + pid + "/stat"))
-		current.Processes[pid] = sample
-		cpuPercent := 0.0
-		cpuValid := false
-		if previous != nil {
-			if old, ok := previous.Processes[pid]; ok {
-				cpuPercent, cpuValid = processCPU(sample, old, tickHz, seconds)
-			}
-		}
-		pidNum, _ := strconv.Atoi(pid)
-		cmd := strings.ReplaceAll(readText("/proc/"+pid+"/cmdline"), "\x00", " ")
-		row := ProcessInfo{
-			CPUValid:      cpuValid,
-			PID:           pidNum,
-			PPID:          ppid,
-			UID:           uid,
-			User:          usernameForUID(uid),
-			Name:          name,
-			Command:       strings.TrimSpace(cmd),
-			State:         state,
-			Threads:       threads,
-			RSS:           rss,
-			VSZ:           vsz,
-			RssAnon:       rssAnon,
-			RssFile:       rssFile,
-			VmData:        vmData,
-			VmSwap:        vmSwap,
-			MemoryPercent: percent(rss, memoryTotal),
-			CPU:           cpuPercent,
-		}
-		rows = append(rows, row)
-		result.Total++
-		switch state {
-		case "R":
-			result.Running++
-		case "S", "I":
-			result.Sleeping++
-		case "T":
-			result.Stopped++
-		case "Z":
-			result.Zombie++
-		}
-	}
-	s.prevProc = current
-	sort.Slice(rows, func(i, j int) bool { return rows[i].RSS > rows[j].RSS })
-	result.TopMemory = append(result.TopMemory, rows[:min(len(rows), 8)]...)
-	sort.Slice(rows, func(i, j int) bool { return rows[i].CPU > rows[j].CPU })
-	result.TopCPU = append(result.TopCPU, rows[:min(len(rows), 8)]...)
 	return result
 }
 
