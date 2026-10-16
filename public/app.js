@@ -10,6 +10,7 @@ const els = {
   connectionDot: byId('connectionDot'),
   connectionText: byId('connectionText'),
   timestamp: byId('timestamp'),
+  bootTimeBadge: byId('bootTimeBadge'),
   uptimeBadge: byId('uptimeBadge'),
   primaryAddress: byId('primaryAddress'),
   cpuValue: byId('cpuValue'),
@@ -39,6 +40,8 @@ const els = {
   diskReadRate: byId('diskReadRate'),
   diskWriteRate: byId('diskWriteRate'),
   activeIfaces: byId('activeIfaces'),
+  networkScope: byId('networkScope'),
+  diskScope: byId('diskScope'),
   rxRate: byId('rxRate'),
   txRate: byId('txRate'),
   rxTotal: byId('rxTotal'),
@@ -76,6 +79,7 @@ function clamp(value, min = 0, max = 100) {
 }
 
 function formatPercent(value, digits = 0) {
+  if (!Number.isFinite(value)) return '--';
   return `${clamp(value).toFixed(digits)}%`;
 }
 
@@ -93,8 +97,9 @@ function formatNumber(value, digits = 0) {
 }
 
 function formatBytes(bytes) {
-  if (!Number.isFinite(bytes) || bytes <= 0) return '0 B';
-  const units = ['B', 'KB', 'MB', 'GB', 'TB', 'PB'];
+  if (!Number.isFinite(bytes)) return '--';
+  if (bytes <= 0) return '0 B';
+  const units = ['B', 'KiB', 'MiB', 'GiB', 'TiB', 'PiB'];
   let value = bytes;
   let index = 0;
   while (value >= 1024 && index < units.length - 1) {
@@ -106,6 +111,7 @@ function formatBytes(bytes) {
 }
 
 function formatRate(bytesPerSecond) {
+  if (!Number.isFinite(bytesPerSecond)) return '--';
   return `${formatBytes(bytesPerSecond)}/s`;
 }
 
@@ -116,6 +122,17 @@ function formatDuration(seconds) {
   if (days > 0) return `${days} 天 ${hours} 小时`;
   if (hours > 0) return `${hours} 小时 ${minutes} 分钟`;
   return `${Math.max(minutes, 0)} 分钟`;
+}
+
+function formatDateTime(value) {
+  if (!value) return '--';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '--';
+  // long: 与刷新时间统一使用浏览器时区，避免服务器 UTC 时间被误认成本地开机时间。
+  return date.toLocaleString('zh-CN', {
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false
+  });
 }
 
 function formatTemp(celsius) {
@@ -141,6 +158,7 @@ function render(metrics) {
   els.hostname.textContent = metrics.host.hostname;
   els.hostSubtitle.textContent = `${metrics.host.osName || metrics.host.platform} · ${metrics.host.arch} · ${metrics.cpu.cores} 核`;
   els.timestamp.textContent = new Date(metrics.timestamp).toLocaleTimeString('zh-CN', { hour12: false });
+  els.bootTimeBadge.textContent = formatDateTime(metrics.host.bootTime);
   els.uptimeBadge.textContent = formatDuration(metrics.host.uptime);
   els.primaryAddress.textContent = primaryAddress ? `${primaryAddress.name} ${primaryAddress.address}` : '--';
 
@@ -158,24 +176,24 @@ function render(metrics) {
 
 function renderCpu(metrics) {
   const cpu = metrics.cpu;
-  const percent = cpu.percent || 0;
+  const percent = cpu.valid ? cpu.percent : null;
   els.cpuValue.textContent = formatPercent(percent);
   els.cpuRingValue.textContent = formatPercent(percent);
-  els.cpuRing.style.setProperty('--value', percent.toFixed(1));
-  els.cpuLoad.textContent = (cpu.load || []).map((value) => value.toFixed(2)).join(' / ');
+  els.cpuRing.style.setProperty('--value', clamp(percent).toFixed(1));
+  els.cpuLoad.textContent = cpu.loadValid ? (cpu.load || []).map((value) => value.toFixed(2)).join(' / ') : '--';
   els.cpuCores.textContent = `${cpu.cores} 核`;
   els.cpuSpeed.textContent = cpu.speedMHz ? `${cpu.speedMHz} MHz` : '--';
-  els.cpuTemp.textContent = formatTemp(metrics.temperature.cpu?.celsius ?? metrics.temperature.max);
-  els.cpuUser.textContent = formatPercent(cpu.breakdown?.user || 0);
-  els.cpuSystem.textContent = formatPercent(cpu.breakdown?.system || 0);
-  els.cpuIowait.textContent = formatPercent(cpu.breakdown?.iowait || 0);
+  els.cpuTemp.textContent = formatTemp(metrics.temperature.cpu?.celsius);
+  els.cpuUser.textContent = formatPercent(cpu.valid ? cpu.breakdown?.user : null);
+  els.cpuSystem.textContent = formatPercent(cpu.valid ? cpu.breakdown?.system : null);
+  els.cpuIowait.textContent = formatPercent(cpu.valid ? cpu.breakdown?.iowait : null);
 
   els.perCoreGrid.innerHTML = (cpu.perCore || [])
     .slice(0, 32)
     .map(
       (core) => `
-        <div class="core-cell" title="CPU ${core.index}: ${formatPercent(core.percent)}">
-          <span><i style="width: ${clamp(core.percent)}%"></i></span>
+        <div class="core-cell" title="CPU ${core.index}: ${formatPercent(cpu.valid ? core.percent : null)}">
+          <span><i style="width: ${cpu.valid ? clamp(core.percent) : 0}%"></i></span>
           <strong>${core.index}</strong>
         </div>
       `
@@ -184,44 +202,45 @@ function renderCpu(metrics) {
 }
 
 function renderMemory(memory) {
-  const percent = memory.percent || 0;
-  const appUsed = Math.max((memory.used || 0) - (memory.cached || 0) - (memory.buffers || 0), 0);
-  const appUsedPct = memory.total > 0 ? (appUsed / memory.total) * 100 : 0;
-  const cachePct = memory.total > 0 ? ((memory.cached || 0) / memory.total) * 100 : 0;
-
+  const percent = memory.valid ? memory.percent : null;
+  // long: used 已经扣除 MemAvailable，缓存不能再次扣除，也不能当作互斥分区拼接。
   els.memoryValue.textContent = formatPercent(percent);
-  setWidth(els.memoryUsedSegment, appUsedPct);
-  setWidth(els.memoryCacheSegment, Math.min(cachePct, 100 - appUsedPct));
-  els.memoryUsed.textContent = `${formatBytes(memory.used)} / ${formatBytes(memory.total)}`;
-  els.memoryAvailable.textContent = formatBytes(memory.available);
-  els.memoryCached.textContent = formatBytes(memory.cached);
-  els.swapUsage.textContent = memory.swapTotal > 0
+  setWidth(els.memoryUsedSegment, percent);
+  setWidth(els.memoryCacheSegment, 0);
+  els.memoryUsedSegment.parentElement.title = '已用 = 总量 − 可用；缓存独立展示，不与已用堆叠';
+  els.memoryUsed.textContent = memory.valid ? `${formatBytes(memory.used)} / ${formatBytes(memory.total)}` : '--';
+  els.memoryAvailable.textContent = memory.valid ? `${formatBytes(memory.available)}${memory.estimated ? '（估算）' : ''}` : '--';
+  els.memoryCached.textContent = memory.valid ? formatBytes(memory.cached) : '--';
+  els.swapUsage.textContent = !memory.valid ? '--' : memory.swapTotal > 0
     ? `${formatBytes(memory.swapUsed)} / ${formatBytes(memory.swapTotal)}`
     : '未启用';
 }
 
 function renderDisk(disk) {
-  els.diskValue.textContent = formatPercent(disk.percent || 0);
-  setWidth(els.diskBar, disk.percent || 0);
+  els.diskValue.textContent = formatPercent(disk.valid ? disk.percent : null);
+  setWidth(els.diskBar, disk.valid ? disk.percent : 0);
   els.diskMount.textContent = disk.mount || '/';
-  els.diskUsed.textContent = `${formatBytes(disk.used)} / ${formatBytes(disk.total)}`;
-  els.diskAvailable.textContent = formatBytes(disk.available);
-  els.diskBusy.textContent = formatPercent(disk.io?.busyPercent || 0);
-  els.diskReadRate.textContent = formatRate(disk.io?.readRate || 0);
-  els.diskWriteRate.textContent = formatRate(disk.io?.writeRate || 0);
+  els.diskUsed.textContent = disk.valid ? `${formatBytes(disk.used)} / ${formatBytes(disk.total)}` : '--';
+  els.diskAvailable.textContent = disk.valid ? formatBytes(disk.available) : '--';
+  const validIO = disk.io?.valid && disk.io?.rateValid;
+  els.diskBusy.textContent = formatPercent(validIO ? disk.io.busyPercent : null);
+  els.diskReadRate.textContent = formatRate(validIO ? disk.io.readRate : null);
+  els.diskWriteRate.textContent = formatRate(validIO ? disk.io.writeRate : null);
+  els.diskScope.textContent = disk.io?.scope === 'whole-system-fallback' ? '整机 IO（逻辑设备回退，可能重复）' : '整机物理盘 IO（非根分区独占）';
 }
 
 function renderNetwork(network, tcp) {
-  els.activeIfaces.textContent = `${network.interfaces?.length || 0} 张`;
-  els.rxRate.textContent = formatRate(network.rxRate || 0);
-  els.txRate.textContent = formatRate(network.txRate || 0);
-  els.rxTotal.textContent = formatBytes(network.rxBytes || 0);
-  els.txTotal.textContent = formatBytes(network.txBytes || 0);
-  els.trafficTotal.textContent = formatBytes((network.rxBytes || 0) + (network.txBytes || 0));
-  els.packetRate.textContent = `${formatNumber(network.rxPacketRate || 0)}/${formatNumber(network.txPacketRate || 0)} pps`;
-  els.netErrorsDrops.textContent = `${formatNumber(network.errors || 0)} / ${formatNumber(network.drops || 0)}`;
-  els.tcpEstablished.textContent = formatNumber(tcp.established || 0);
-  els.tcpListening.textContent = `${formatNumber(tcp.listening || 0)} TCP / ${formatNumber(tcp.udpListening || 0)} UDP`;
+  els.activeIfaces.textContent = network.valid ? `${network.selectedInterfaces?.length || 0} 口` : '--';
+  els.networkScope.textContent = network.scope === 'physical' ? `物理网口：${network.selectedInterfaces?.join('、') || '无'}` : '虚拟接口回退：可能跨层重复计数';
+  els.rxRate.textContent = formatRate(network.valid && network.rateValid ? network.rxRate : null);
+  els.txRate.textContent = formatRate(network.valid && network.rateValid ? network.txRate : null);
+  els.rxTotal.textContent = formatBytes(network.valid ? network.rxBytes : null);
+  els.txTotal.textContent = formatBytes(network.valid ? network.txBytes : null);
+  els.trafficTotal.textContent = formatBytes(network.valid ? network.rxBytes + network.txBytes : null);
+  els.packetRate.textContent = network.valid && network.rateValid ? `${formatNumber(network.rxPacketRate)}/${formatNumber(network.txPacketRate)} pps` : '--';
+  els.netErrorsDrops.textContent = network.valid ? `${formatNumber(network.errors)} / ${formatNumber(network.drops)}` : '--';
+  els.tcpEstablished.textContent = tcp.valid ? formatNumber(tcp.established) : '--';
+  els.tcpListening.textContent = tcp.valid ? `${formatNumber(tcp.listening)} TCP / ${formatNumber(tcp.udpListening)} UDP${tcp.partial ? '（部分）' : ''}` : '--';
 }
 
 function renderSummary(metrics) {
@@ -229,12 +248,12 @@ function renderSummary(metrics) {
   els.pressureMemory.textContent = formatPressure(metrics.pressure.memory);
   els.pressureIo.textContent = formatPressure(metrics.pressure.io);
   els.fileHandles.textContent = formatFileHandles(metrics.fileHandles);
-  els.processSummary.textContent = `${formatNumber(metrics.processes.total)} / ${formatNumber(metrics.processes.running)}`;
-  els.tcpTotal.textContent = formatNumber(metrics.tcp.total || 0);
+  els.processSummary.textContent = metrics.processes.valid ? `${formatNumber(metrics.processes.total)} / ${formatNumber(metrics.processes.running)}` : '--';
+  els.tcpTotal.textContent = metrics.tcp.valid ? `${formatNumber(metrics.tcp.total)}${metrics.tcp.partial ? '（部分）' : ''}` : '--';
 }
 
 function formatFileHandles(fileHandles) {
-  if (!fileHandles) return '--';
+  if (!fileHandles?.valid) return '--';
   if (!Number.isFinite(fileHandles.max) || fileHandles.max > 1e12) {
     return `${formatNumber(fileHandles.used)} 已用`;
   }
@@ -245,9 +264,9 @@ function formatPressure(pressure) {
   const some = pressure?.some?.avg10;
   const full = pressure?.full?.avg10;
   if (!Number.isFinite(some) && !Number.isFinite(full)) return '--';
-  if (Number.isFinite(some) && Number.isFinite(full) && full > 0) return `${some.toFixed(2)} / ${full.toFixed(2)}`;
-  if (Number.isFinite(some)) return `${some.toFixed(2)}`;
-  return `${full.toFixed(2)}`;
+  if (Number.isFinite(some) && Number.isFinite(full)) return `some ${some.toFixed(2)}% / full ${full.toFixed(2)}%`;
+  if (Number.isFinite(some)) return `some ${some.toFixed(2)}%`;
+  return `full ${full.toFixed(2)}%`;
 }
 
 function renderPortListeners(listeners) {
@@ -258,7 +277,7 @@ function renderPortListeners(listeners) {
 
   els.portListeners.innerHTML = listeners
     .map((item) => {
-      const command = item.command || item.process || '--';
+      const command = item.command || item.process || '不可读取（权限或进程退出）';
       return `
         <tr>
           <td>${escapeHtml((item.protocol || '').toUpperCase())}</td>
@@ -296,7 +315,7 @@ function renderProcessTable(target, rows, mode) {
             <td>${process.pid}</td>
             <td title="${escapeHtml(process.user || process.uid || '--')}">${escapeHtml(process.user || process.uid || '--')}</td>
             <td title="${title}">${name}</td>
-            <td>${formatRawPercent(process.cpu || 0, 1)}</td>
+            <td>${formatRawPercent(process.cpuValid ? process.cpu : null, 1)}</td>
             <td>${formatBytes(process.rss)}</td>
             <td>${process.threads || 0}</td>
             <td>${process.ppid || 0}</td>
@@ -410,11 +429,11 @@ function drawChart({ canvas, ctx, history, mode, series }) {
 }
 
 function getChartMax(history, mode, series) {
-  if (mode === 'percent') return 100;
   const max = history.reduce((peak, point) => {
     const local = series.reduce((inner, item) => Math.max(inner, point[item.key] || 0), 0);
     return Math.max(peak, local);
   }, 1);
+  if (mode === 'percent' && max <= 100) return 100;
   const magnitude = 10 ** Math.floor(Math.log10(max));
   return Math.ceil(max / magnitude) * magnitude;
 }
@@ -427,12 +446,19 @@ function drawLine(ctx, history, key, color, padding, innerWidth, innerHeight, ma
   ctx.lineJoin = 'round';
   ctx.lineCap = 'round';
 
+  let hasPrevious = false;
   history.forEach((point, index) => {
+    // long: 采集失败必须形成断点，不能用 0 伪装成正常空闲或零吞吐。
+    if (!Number.isFinite(point[key])) {
+      hasPrevious = false;
+      return;
+    }
     const x = padding.left + (history.length === 1 ? innerWidth : (innerWidth / (history.length - 1)) * index);
-    const value = clamp(point[key] || 0, 0, maxValue);
+    const value = clamp(point[key], 0, maxValue);
     const y = padding.top + innerHeight - (value / maxValue) * innerHeight;
-    if (index === 0) ctx.moveTo(x, y);
+    if (!hasPrevious) ctx.moveTo(x, y);
     else ctx.lineTo(x, y);
+    hasPrevious = true;
   });
   ctx.stroke();
 }
@@ -447,7 +473,7 @@ function startFallbackPolling() {
   if (state.fallbackTimer) return;
   state.fallbackTimer = setInterval(() => {
     pollOnce().catch(() => setConnection(false));
-  }, 2000);
+  }, 500);
 }
 
 function startStream() {
@@ -457,7 +483,14 @@ function startStream() {
   }
 
   const stream = new EventSource('/api/events');
-  stream.onmessage = (event) => render(JSON.parse(event.data));
+  stream.onmessage = (event) => {
+    // long: SSE 恢复后只保留推送，避免半秒轮询与推送叠加产生重复请求和重绘。
+    if (state.fallbackTimer) {
+      clearInterval(state.fallbackTimer);
+      state.fallbackTimer = null;
+    }
+    render(JSON.parse(event.data));
+  };
   stream.onerror = () => {
     setConnection(false);
     startFallbackPolling();

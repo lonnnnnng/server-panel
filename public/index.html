@@ -24,6 +24,10 @@
             <strong id="timestamp">--</strong>
           </div>
           <div class="meta-pill">
+            <span>开机时间</span>
+            <strong id="bootTimeBadge">--</strong>
+          </div>
+          <div class="meta-pill">
             <span>运行</span>
             <strong id="uptimeBadge">--</strong>
           </div>
@@ -41,11 +45,11 @@
               <span class="label">CPU</span>
               <h2>计算负载</h2>
             </div>
-            <strong id="cpuValue" class="metric-value">0%</strong>
+            <strong id="cpuValue" class="metric-value">--</strong>
           </div>
           <div class="cpu-layout">
             <div class="ring" id="cpuRing" style="--value: 0">
-              <span id="cpuRingValue">0%</span>
+              <span id="cpuRingValue">--</span>
             </div>
             <div class="stacked-details">
               <div class="kv">
@@ -69,15 +73,15 @@
           <div class="breakdown">
             <div>
               <span>用户</span>
-              <strong id="cpuUser">0%</strong>
+              <strong id="cpuUser">--</strong>
             </div>
             <div>
               <span>系统</span>
-              <strong id="cpuSystem">0%</strong>
+              <strong id="cpuSystem">--</strong>
             </div>
             <div>
               <span>IO 等待</span>
-              <strong id="cpuIowait">0%</strong>
+              <strong id="cpuIowait">--</strong>
             </div>
           </div>
           <div id="perCoreGrid" class="core-grid"></div>
@@ -89,7 +93,7 @@
               <span class="label memory-label">Memory</span>
               <h2>内存池</h2>
             </div>
-            <strong id="memoryValue" class="metric-value">0%</strong>
+            <strong id="memoryValue" class="metric-value">--</strong>
           </div>
           <div class="segmented-bar">
             <span id="memoryUsedSegment" class="seg-used" style="width: 0%"></span>
@@ -121,7 +125,7 @@
               <span class="label disk-label">Storage</span>
               <h2>根分区</h2>
             </div>
-            <strong id="diskValue" class="metric-value">0%</strong>
+            <strong id="diskValue" class="metric-value">--</strong>
           </div>
           <div class="bar">
             <span id="diskBar" class="disk-fill" style="width: 0%"></span>
@@ -140,10 +144,11 @@
               <dd id="diskAvailable">--</dd>
             </div>
             <div>
-              <dt>IO 忙碌</dt>
+              <dt title="整机所选物理盘中最高忙碌比例，不等于吞吐占设备极限的比例">整机 IO 忙碌</dt>
               <dd id="diskBusy">--</dd>
             </div>
           </dl>
+          <p id="diskScope" class="muted">整机物理盘 IO（非根分区独占）</p>
           <div class="rate-pair">
             <div>
               <span>读</span>
@@ -164,6 +169,7 @@
             </div>
             <strong id="activeIfaces" class="metric-value">--</strong>
           </div>
+          <p id="networkScope" class="muted">物理网口汇总</p>
           <div class="rate-pair large">
             <div>
               <span>入站</span>
@@ -211,15 +217,15 @@
 
       <section class="stat-strip" aria-label="补充指标">
         <div>
-          <span>系统压力 CPU</span>
+          <span title="过去 10 秒内受 CPU 资源阻塞的时间比例">CPU PSI · avg10</span>
           <strong id="pressureCpu">--</strong>
         </div>
         <div>
-          <span>系统压力内存</span>
+          <span title="some 为至少一个任务阻塞，full 为所有非空闲任务阻塞">内存 PSI · avg10</span>
           <strong id="pressureMemory">--</strong>
         </div>
         <div>
-          <span>系统压力 IO</span>
+          <span title="some 为至少一个任务阻塞，full 为所有非空闲任务阻塞">IO PSI · avg10</span>
           <strong id="pressureIo">--</strong>
         </div>
         <div>
@@ -227,7 +233,7 @@
           <strong id="fileHandles">--</strong>
         </div>
         <div>
-          <span>进程 / 运行</span>
+          <span title="可读取进程数 / 主线程状态为 R 的进程数，不等于可运行线程总数">进程 / 主线程 R</span>
           <strong id="processSummary">--</strong>
         </div>
         <div>
@@ -270,32 +276,6 @@
       </section>
 
       <section class="detail-grid">
-        <article class="panel wide">
-          <div class="section-heading compact">
-            <h2>端口占用</h2>
-          </div>
-          <div class="table-scroll">
-            <table class="port-table">
-              <thead>
-                <tr>
-                  <th>协议</th>
-                  <th>本地地址</th>
-                  <th>端口</th>
-                  <th>PID</th>
-                  <th>用户</th>
-                  <th>进程</th>
-                  <th>命令</th>
-                </tr>
-              </thead>
-              <tbody id="portListeners">
-                <tr>
-                  <td colspan="7">等待数据</td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-        </article>
-
         <article class="panel wide">
           <div class="section-heading compact">
             <h2>进程热点</h2>
@@ -344,6 +324,32 @@
                 </tbody>
               </table>
             </div>
+          </div>
+        </article>
+
+        <article class="panel wide">
+          <div class="section-heading compact">
+            <h2>端口占用</h2>
+          </div>
+          <div class="table-scroll">
+            <table class="port-table">
+              <thead>
+                <tr>
+                  <th>协议</th>
+                  <th>本地地址</th>
+                  <th>端口</th>
+                  <th>PID</th>
+                  <th>用户</th>
+                  <th>进程</th>
+                  <th>命令</th>
+                </tr>
+              </thead>
+              <tbody id="portListeners">
+                <tr>
+                  <td colspan="7">等待数据</td>
+                </tr>
+              </tbody>
+            </table>
           </div>
         </article>
       </section>

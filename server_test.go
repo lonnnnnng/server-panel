@@ -17,15 +17,15 @@ func TestConfigDefaultAndOverrides(t *testing.T) {
 		t.Setenv(key, "")
 	}
 	cfg, err := loadConfig()
-	if err != nil || cfg.Port != "8888" || cfg.Host != "0.0.0.0" || cfg.History != 120 || cfg.Interval != time.Second {
+	if err != nil || cfg.Port != "8888" || cfg.Host != "0.0.0.0" || cfg.History != 120 || cfg.Interval != 500*time.Millisecond {
 		t.Fatalf("unexpected default config: %+v, %v", cfg, err)
 	}
 	t.Setenv("PORT", "9001")
 	t.Setenv("HOST", "127.0.0.1")
-	t.Setenv("SAMPLE_INTERVAL_MS", "500")
+	t.Setenv("SAMPLE_INTERVAL_MS", "250")
 	t.Setenv("MAX_HISTORY", "30")
 	cfg, err = loadConfig()
-	if err != nil || cfg.Port != "9001" || cfg.Host != "127.0.0.1" || cfg.History != 30 || cfg.Interval != 500*time.Millisecond {
+	if err != nil || cfg.Port != "9001" || cfg.Host != "127.0.0.1" || cfg.History != 30 || cfg.Interval != 250*time.Millisecond {
 		t.Fatalf("override not applied: %+v, %v", cfg, err)
 	}
 }
@@ -98,6 +98,18 @@ func TestSimplifiedDashboardAssets(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// long: DOM 顺序与视觉顺序一致，桌面、移动端和辅助阅读都应先看到进程热点。
+	processPosition := strings.Index(string(html), "<h2>进程热点</h2>")
+	portPosition := strings.Index(string(html), "<h2>端口占用</h2>")
+	if processPosition < 0 || portPosition < 0 || processPosition >= portPosition {
+		t.Fatal("process hotspots must appear before port listeners")
+	}
+	// long: 开机日期与持续运行时长成对阅读，日期应排在时长之前且只展示一次。
+	bootPosition := strings.Index(string(html), `id="bootTimeBadge"`)
+	uptimePosition := strings.Index(string(html), `id="uptimeBadge"`)
+	if bootPosition < 0 || uptimePosition < 0 || bootPosition >= uptimePosition || strings.Count(string(html), `id="bootTimeBadge"`) != 1 {
+		t.Fatal("boot time must appear once before uptime")
+	}
 	script, err := publicFiles.ReadFile("public/app.js")
 	if err != nil {
 		t.Fatal(err)
@@ -123,6 +135,19 @@ func TestSimplifiedDashboardAssets(t *testing.T) {
 		if !strings.Contains(string(html), `id="`+id+`"`) {
 			t.Errorf("required dashboard element missing: %s", id)
 		}
+	}
+}
+
+func TestMetricsTimestampPreservesSubsecondPrecision(t *testing.T) {
+	// long: 秒级格式会早于本轮采集起点，无法区分同一秒内的两次刷新。
+	started := time.Now()
+	state := &AppState{maxHistory: 1}
+	if err := state.collect(); err != nil {
+		t.Fatal(err)
+	}
+	sampled, err := time.Parse(time.RFC3339Nano, state.snapshot().Timestamp)
+	if err != nil || sampled.Before(started) || sampled.After(time.Now()) {
+		t.Fatalf("sampling timestamp lost precision: %s, %v", state.snapshot().Timestamp, err)
 	}
 }
 

@@ -39,7 +39,7 @@ func loadConfig() (serverConfig, error) {
 	if _, err := boundedEnvInt("PORT", defaultPort, 1, 65535); err != nil {
 		return cfg, err
 	}
-	interval, err := boundedEnvInt("SAMPLE_INTERVAL_MS", "1000", 100, 60000)
+	interval, err := boundedEnvInt("SAMPLE_INTERVAL_MS", strconv.Itoa(defaultIntervalMs), 100, 60000)
 	if err != nil {
 		return cfg, err
 	}

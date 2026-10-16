@@ -22,7 +22,7 @@ import (
 const (
 	defaultPort       = "8888"
 	defaultHost       = "0.0.0.0"
-	defaultIntervalMs = 1000
+	defaultIntervalMs = 500
 	defaultHistory    = 120
 )
 
@@ -72,13 +72,13 @@ type DiskRaw struct {
 
 type ProcRaw struct {
 	Time      time.Time
-	Processes map[string]uint64
+	Processes map[string]ProcSample
 }
 
 type AppState struct {
 	mu          sync.Mutex
 	latest      *Metrics
-	history     []*Metrics
+	history     []HistoryPoint
 	maxHistory  int
 	prevCPU     *CPUSnapshot
 	prevNetwork *NetworkRaw
@@ -234,6 +234,8 @@ type NetworkHardware struct {
 }
 
 type CPUMetrics struct {
+	Valid       bool         `json:"valid"`
+	LoadValid   bool         `json:"loadValid"`
 	Percent     float64      `json:"percent"`
 	Cores       int          `json:"cores"`
 	Load        []float64    `json:"load"`
@@ -258,6 +260,8 @@ type CoreUsage struct {
 }
 
 type MemoryMetrics struct {
+	Valid        bool    `json:"valid"`
+	Estimated    bool    `json:"estimated"`
 	Total        uint64  `json:"total"`
 	Available    uint64  `json:"available"`
 	Free         uint64  `json:"free"`
@@ -283,6 +287,7 @@ type MemoryMetrics struct {
 }
 
 type DiskMetrics struct {
+	Valid       bool         `json:"valid"`
 	Filesystem  string       `json:"filesystem"`
 	Type        string       `json:"type"`
 	Mount       string       `json:"mount"`
@@ -305,6 +310,9 @@ type Filesystem struct {
 }
 
 type DiskIO struct {
+	Valid       bool         `json:"valid"`
+	RateValid   bool         `json:"rateValid"`
+	Scope       string       `json:"scope"`
 	Reads       uint64       `json:"reads"`
 	Writes      uint64       `json:"writes"`
 	ReadBytes   uint64       `json:"readBytes"`
@@ -333,22 +341,26 @@ type DiskDevice struct {
 }
 
 type NetworkMetrics struct {
-	RXBytes      uint64         `json:"rxBytes"`
-	TXBytes      uint64         `json:"txBytes"`
-	RXPackets    uint64         `json:"rxPackets"`
-	TXPackets    uint64         `json:"txPackets"`
-	RXErrors     uint64         `json:"rxErrors"`
-	RXDrops      uint64         `json:"rxDrops"`
-	TXErrors     uint64         `json:"txErrors"`
-	TXDrops      uint64         `json:"txDrops"`
-	RXRate       float64        `json:"rxRate"`
-	TXRate       float64        `json:"txRate"`
-	RXPacketRate float64        `json:"rxPacketRate"`
-	TXPacketRate float64        `json:"txPacketRate"`
-	Errors       uint64         `json:"errors"`
-	Drops        uint64         `json:"drops"`
-	Addresses    []Address      `json:"addresses"`
-	Interfaces   []NetInterface `json:"interfaces"`
+	Valid              bool           `json:"valid"`
+	RateValid          bool           `json:"rateValid"`
+	Scope              string         `json:"scope"`
+	SelectedInterfaces []string       `json:"selectedInterfaces"`
+	RXBytes            uint64         `json:"rxBytes"`
+	TXBytes            uint64         `json:"txBytes"`
+	RXPackets          uint64         `json:"rxPackets"`
+	TXPackets          uint64         `json:"txPackets"`
+	RXErrors           uint64         `json:"rxErrors"`
+	RXDrops            uint64         `json:"rxDrops"`
+	TXErrors           uint64         `json:"txErrors"`
+	TXDrops            uint64         `json:"txDrops"`
+	RXRate             float64        `json:"rxRate"`
+	TXRate             float64        `json:"txRate"`
+	RXPacketRate       float64        `json:"rxPacketRate"`
+	TXPacketRate       float64        `json:"txPacketRate"`
+	Errors             uint64         `json:"errors"`
+	Drops              uint64         `json:"drops"`
+	Addresses          []Address      `json:"addresses"`
+	Interfaces         []NetInterface `json:"interfaces"`
 }
 
 type Address struct {
@@ -357,6 +369,7 @@ type Address struct {
 }
 
 type NetInterface struct {
+	RateValid    bool    `json:"rateValid"`
 	Name         string  `json:"name"`
 	Kind         string  `json:"kind"`
 	State        string  `json:"state"`
@@ -379,6 +392,7 @@ type NetInterface struct {
 }
 
 type ProcMetrics struct {
+	Valid     bool          `json:"valid"`
 	Total     int           `json:"total"`
 	Running   int           `json:"running"`
 	Sleeping  int           `json:"sleeping"`
@@ -390,6 +404,7 @@ type ProcMetrics struct {
 }
 
 type ProcessInfo struct {
+	CPUValid      bool    `json:"cpuValid"`
 	PID           int     `json:"pid"`
 	PPID          int     `json:"ppid"`
 	UID           string  `json:"uid"`
@@ -409,6 +424,8 @@ type ProcessInfo struct {
 }
 
 type TCPMetrics struct {
+	Valid        bool           `json:"valid"`
+	Partial      bool           `json:"partial"`
 	Total        int            `json:"total"`
 	Established  int            `json:"established"`
 	Listening    int            `json:"listening"`
@@ -456,6 +473,7 @@ type TempZone struct {
 }
 
 type FileHandles struct {
+	Valid     bool    `json:"valid"`
 	Allocated uint64  `json:"allocated"`
 	Unused    uint64  `json:"unused"`
 	Used      uint64  `json:"used"`
@@ -464,15 +482,15 @@ type FileHandles struct {
 }
 
 type HistoryPoint struct {
-	Timestamp string  `json:"timestamp"`
-	CPU       float64 `json:"cpu"`
-	Memory    float64 `json:"memory"`
-	Disk      float64 `json:"disk"`
-	RXRate    float64 `json:"rxRate"`
-	TXRate    float64 `json:"txRate"`
-	ReadRate  float64 `json:"readRate"`
-	WriteRate float64 `json:"writeRate"`
-	Load      float64 `json:"load"`
+	Timestamp string   `json:"timestamp"`
+	CPU       *float64 `json:"cpu"`
+	Memory    *float64 `json:"memory"`
+	Disk      *float64 `json:"disk"`
+	RXRate    *float64 `json:"rxRate"`
+	TXRate    *float64 `json:"txRate"`
+	ReadRate  *float64 `json:"readRate"`
+	WriteRate *float64 `json:"writeRate"`
+	Load      *float64 `json:"load"`
 }
 
 func main() {
@@ -501,7 +519,8 @@ func (s *AppState) collect() error {
 	tcp := readTCP()
 	host := readHost()
 	metrics := &Metrics{
-		Timestamp:   now.Format(time.RFC3339),
+		// long: 半秒采样必须保留亚秒时间，避免两帧指标和趋势点共享同一个秒级时间戳。
+		Timestamp:   now.Format(time.RFC3339Nano),
 		Host:        host,
 		Hardware:    s.readHardware(host, cpu, mem, disk, netm),
 		CPU:         cpu,
@@ -515,25 +534,8 @@ func (s *AppState) collect() error {
 		FileHandles: readFileHandles(),
 	}
 
-	for _, entry := range s.history {
-		metrics.History = append(metrics.History, HistoryPoint{
-			Timestamp: entry.Timestamp,
-			CPU:       entry.CPU.Percent,
-			Memory:    entry.Memory.Percent,
-			Disk:      entry.Disk.Percent,
-			RXRate:    entry.Network.RXRate,
-			TXRate:    entry.Network.TXRate,
-			ReadRate:  entry.Disk.IO.ReadRate,
-			WriteRate: entry.Disk.IO.WriteRate,
-			Load:      entry.CPU.LoadPercent,
-		})
-	}
-
+	s.appendHistory(metrics)
 	s.latest = metrics
-	s.history = append(s.history, metrics)
-	if len(s.history) > s.maxHistory {
-		s.history = s.history[len(s.history)-s.maxHistory:]
-	}
 	return nil
 }
 
@@ -542,10 +544,11 @@ func readCPU(s *AppState) CPUMetrics {
 	info := readCPUInfo()
 	load := readLoadAvg()
 	metrics := CPUMetrics{
-		Cores:    runtime.NumCPU(),
-		Load:     load,
-		Model:    info.model,
-		SpeedMHz: info.speedMHz,
+		LoadValid: len(load) == 3,
+		Cores:     runtime.NumCPU(),
+		Load:      load,
+		Model:     info.model,
+		SpeedMHz:  info.speedMHz,
 		Breakdown: CPUBreakdown{
 			Idle: 100,
 		},
@@ -557,13 +560,18 @@ func readCPU(s *AppState) CPUMetrics {
 		for _, core := range current.Cores {
 			metrics.PerCore = append(metrics.PerCore, CoreUsage{Index: core.Index, Percent: 0})
 		}
-		s.prevCPU = current
-		metrics.LoadPercent = clamp((first(load) / float64(max(metrics.Cores, 1))) * 100)
+		if current.Aggregate.Total > 0 {
+			s.prevCPU = current
+		} else {
+			s.prevCPU = nil
+		}
+		metrics.LoadPercent = (first(load) / float64(max(metrics.Cores, 1))) * 100
 		return metrics
 	}
 
 	percent, breakdown := cpuDelta(current.Aggregate, s.prevCPU.Aggregate)
 	metrics.Percent = percent
+	metrics.Valid = current.Aggregate.Total > s.prevCPU.Aggregate.Total
 	metrics.Breakdown = breakdown
 	prevCores := map[int]CPUStat{}
 	for _, core := range s.prevCPU.Cores {
@@ -577,7 +585,7 @@ func readCPU(s *AppState) CPUMetrics {
 		}
 		metrics.PerCore = append(metrics.PerCore, CoreUsage{Index: core.Index, Percent: value})
 	}
-	metrics.LoadPercent = clamp((first(load) / float64(max(metrics.Cores, 1))) * 100)
+	metrics.LoadPercent = (first(load) / float64(max(metrics.Cores, 1))) * 100
 	s.prevCPU = current
 	return metrics
 }
@@ -621,7 +629,8 @@ func parseCPULine(line string, index int) CPUStat {
 	}
 	stat.IdleAll = stat.Idle + stat.IOWait
 	stat.SystemAll = stat.System + stat.IRQ + stat.SoftIRQ
-	for _, value := range values {
+	// long: guest 已计入 user/nice，再累加会让虚拟化负载下的 CPU 使用率虚高。
+	for _, value := range values[:8] {
 		stat.Total += value
 	}
 	return stat
@@ -642,13 +651,17 @@ func cpuDelta(current, prev CPUStat) (float64, CPUBreakdown) {
 		System: clamp(system / total * 100),
 		IOWait: clamp(iowait / total * 100),
 		Steal:  clamp(steal / total * 100),
-		Idle:   clamp(idle / total * 100),
+		Idle:   clamp((current.Idle - prev.Idle) / total * 100),
 	}
 }
 
 func readMemory() MemoryMetrics {
+	return parseMemory(readText("/proc/meminfo"))
+}
+
+func parseMemory(text string) MemoryMetrics {
 	values := map[string]uint64{}
-	for _, line := range strings.Split(readText("/proc/meminfo"), "\n") {
+	for _, line := range strings.Split(text, "\n") {
 		parts := strings.Fields(line)
 		if len(parts) >= 2 {
 			key := strings.TrimSuffix(parts[0], ":")
@@ -661,6 +674,14 @@ func readMemory() MemoryMetrics {
 	free := values["MemFree"]
 	cached := values["Cached"] + values["SReclaimable"]
 	buffers := values["Buffers"]
+	_, hasAvailable := values["MemAvailable"]
+	if !hasAvailable {
+		// long: 老内核缺少 MemAvailable 时只能估算，必须标记，不能误报内存占满。
+		available = free + buffers + cached
+	}
+	if available > total {
+		available = total
+	}
 	slab := values["Slab"]
 	used := uint64(0)
 	if total > available {
@@ -672,6 +693,8 @@ func readMemory() MemoryMetrics {
 		swapUsed = swapTotal - values["SwapFree"]
 	}
 	return MemoryMetrics{
+		Valid:        total > 0,
+		Estimated:    !hasAvailable,
 		Total:        total,
 		Available:    available,
 		Free:         free,
@@ -700,9 +723,6 @@ func readMemory() MemoryMetrics {
 func readDisk(s *AppState) DiskMetrics {
 	filesystems := readFilesystems()
 	root := Filesystem{Filesystem: "unknown", Type: "unknown", Mount: "/", Total: 0}
-	if len(filesystems) > 0 {
-		root = filesystems[0]
-	}
 	for _, fs := range filesystems {
 		if fs.Mount == "/" {
 			root = fs
@@ -711,6 +731,7 @@ func readDisk(s *AppState) DiskMetrics {
 	}
 	ioMetrics := readDiskIO(s)
 	return DiskMetrics{
+		Valid:       root.Total > 0,
 		Filesystem:  root.Filesystem,
 		Type:        root.Type,
 		Mount:       root.Mount,
@@ -749,7 +770,8 @@ func readFilesystems() []Filesystem {
 			Total:      total,
 			Used:       used,
 			Available:  available,
-			Percent:    percent(used, total),
+			// long: 与 df 一致排除保留块，并向上取整，避免面板与命令行使用率冲突。
+			Percent: filesystemPercent(used, available),
 		})
 	}
 	sort.Slice(filesystems, func(i, j int) bool {
@@ -773,7 +795,8 @@ func readFilesystems() []Filesystem {
 func readDiskIO(s *AppState) DiskIO {
 	now := time.Now()
 	devices := map[string]DiskDevice{}
-	for _, line := range strings.Split(readText("/proc/diskstats"), "\n") {
+	text := readText("/proc/diskstats")
+	for _, line := range strings.Split(text, "\n") {
 		parts := strings.Fields(line)
 		if len(parts) < 14 || !isDiskDevice(parts[2]) {
 			continue
@@ -794,34 +817,16 @@ func readDiskIO(s *AppState) DiskIO {
 		raw.WriteBytes += d.WriteBytes
 		raw.IOMs += d.IOMs
 	}
-	result := DiskIO{Reads: raw.Reads, Writes: raw.Writes, ReadBytes: raw.ReadBytes, WriteBytes: raw.WriteBytes, IOMs: raw.IOMs}
-	if s.prevDisk != nil {
-		seconds := math.Max(now.Sub(s.prevDisk.Time).Seconds(), 0.001)
-		elapsedMs := math.Max(float64(now.Sub(s.prevDisk.Time).Milliseconds()), 1)
-		result.ReadRate = float64(delta(raw.ReadBytes, s.prevDisk.ReadBytes)) / seconds
-		result.WriteRate = float64(delta(raw.WriteBytes, s.prevDisk.WriteBytes)) / seconds
-		result.ReadOps = float64(delta(raw.Reads, s.prevDisk.Reads)) / seconds
-		result.WriteOps = float64(delta(raw.Writes, s.prevDisk.Writes)) / seconds
-		for name, device := range devices {
-			prev, ok := s.prevDisk.Devices[name]
-			if ok {
-				device.ReadRate = float64(delta(device.ReadBytes, prev.ReadBytes)) / seconds
-				device.WriteRate = float64(delta(device.WriteBytes, prev.WriteBytes)) / seconds
-				device.ReadOps = float64(delta(device.Reads, prev.Reads)) / seconds
-				device.WriteOps = float64(delta(device.Writes, prev.Writes)) / seconds
-				device.BusyPercent = clamp(float64(delta(device.IOMs, prev.IOMs)) / elapsedMs * 100)
-			}
-			result.BusyPercent = math.Max(result.BusyPercent, device.BusyPercent)
-			result.Devices = append(result.Devices, device)
-		}
-	}
+	result := calculateDiskIO(raw, s.prevDisk)
+	result.Valid = text != "" && len(devices) > 0
 	sort.Slice(result.Devices, func(i, j int) bool {
 		return result.Devices[i].ReadRate+result.Devices[i].WriteRate > result.Devices[j].ReadRate+result.Devices[j].WriteRate
 	})
-	if len(result.Devices) > 6 {
-		result.Devices = result.Devices[:6]
+	if result.Valid {
+		s.prevDisk = raw
+	} else {
+		s.prevDisk = nil
 	}
-	s.prevDisk = raw
 	return result
 }
 
@@ -874,53 +879,32 @@ func readNetwork(s *AppState) NetworkMetrics {
 		raw.TXPackets += item.TXPackets
 		raw.Interfaces[item.Name] = item
 	}
-	result := NetworkMetrics{Addresses: readAddresses(), Interfaces: interfaces}
-	for _, item := range interfaces {
-		result.RXBytes += item.RXBytes
-		result.TXBytes += item.TXBytes
-		result.RXPackets += item.RXPackets
-		result.TXPackets += item.TXPackets
-		result.RXErrors += item.RXErrors
-		result.RXDrops += item.RXDrops
-		result.TXErrors += item.TXErrors
-		result.TXDrops += item.TXDrops
-	}
-	result.Errors = result.RXErrors + result.TXErrors
-	result.Drops = result.RXDrops + result.TXDrops
-	if s.prevNetwork != nil {
-		seconds := math.Max(now.Sub(s.prevNetwork.Time).Seconds(), 0.001)
-		result.RXRate = float64(delta(raw.RXBytes, s.prevNetwork.RXBytes)) / seconds
-		result.TXRate = float64(delta(raw.TXBytes, s.prevNetwork.TXBytes)) / seconds
-		result.RXPacketRate = float64(delta(raw.RXPackets, s.prevNetwork.RXPackets)) / seconds
-		result.TXPacketRate = float64(delta(raw.TXPackets, s.prevNetwork.TXPackets)) / seconds
-		for i, item := range result.Interfaces {
-			prev, ok := s.prevNetwork.Interfaces[item.Name]
-			if ok {
-				result.Interfaces[i].RXRate = float64(delta(item.RXBytes, prev.RXBytes)) / seconds
-				result.Interfaces[i].TXRate = float64(delta(item.TXBytes, prev.TXBytes)) / seconds
-				result.Interfaces[i].RXPacketRate = float64(delta(item.RXPackets, prev.RXPackets)) / seconds
-				result.Interfaces[i].TXPacketRate = float64(delta(item.TXPackets, prev.TXPackets)) / seconds
-			}
-		}
-	}
+	result := calculateNetwork(raw, s.prevNetwork)
+	result.Valid = netLines != nil
+	result.Addresses = readAddresses()
 	sort.Slice(result.Interfaces, func(i, j int) bool {
 		return result.Interfaces[i].RXRate+result.Interfaces[i].TXRate > result.Interfaces[j].RXRate+result.Interfaces[j].TXRate
 	})
-	s.prevNetwork = raw
+	if result.Valid {
+		s.prevNetwork = raw
+	} else {
+		s.prevNetwork = nil
+	}
 	return result
 }
 
 func readProcesses(s *AppState, memoryTotal uint64) ProcMetrics {
-	entries, _ := os.ReadDir("/proc")
+	entries, readErr := os.ReadDir("/proc")
 	now := time.Now()
 	previous := s.prevProc
 	seconds := 0.0
 	if previous != nil {
 		seconds = math.Max(now.Sub(previous.Time).Seconds(), 0.001)
 	}
-	current := &ProcRaw{Time: now, Processes: map[string]uint64{}}
+	current := &ProcRaw{Time: now, Processes: map[string]ProcSample{}}
 	var rows []ProcessInfo
-	result := ProcMetrics{Uptime: readUptime()}
+	result := ProcMetrics{Valid: readErr == nil, Uptime: readUptime()}
+	tickHz := clockTicks()
 	for _, entry := range entries {
 		if !entry.IsDir() || !isDigits(entry.Name()) {
 			continue
@@ -941,17 +925,19 @@ func readProcesses(s *AppState, memoryTotal uint64) ProcMetrics {
 		ppid := int(parseUint(matchStatus(status, "PPid")))
 		uid := matchStatus(status, "Uid")
 		threads := int(parseUint(matchStatus(status, "Threads")))
-		ticks := parseProcTicks(readText("/proc/" + pid + "/stat"))
-		current.Processes[pid] = ticks
+		sample := parseProcSample(readText("/proc/" + pid + "/stat"))
+		current.Processes[pid] = sample
 		cpuPercent := 0.0
+		cpuValid := false
 		if previous != nil {
-			if old, ok := previous.Processes[pid]; ok && seconds > 0 {
-				cpuPercent = float64(delta(ticks, old)) / float64(envInt("CLK_TCK", 100)) / seconds * 100
+			if old, ok := previous.Processes[pid]; ok {
+				cpuPercent, cpuValid = processCPU(sample, old, tickHz, seconds)
 			}
 		}
 		pidNum, _ := strconv.Atoi(pid)
 		cmd := strings.ReplaceAll(readText("/proc/"+pid+"/cmdline"), "\x00", " ")
 		row := ProcessInfo{
+			CPUValid:      cpuValid,
 			PID:           pidNum,
 			PPID:          ppid,
 			UID:           uid,
@@ -1006,6 +992,11 @@ func readTCP() TCPMetrics {
 	}
 	var listenerEntries []socketEntry
 	for _, file := range socketFiles {
+		if _, err := os.ReadFile(file.path); err != nil {
+			result.Partial = true
+			continue
+		}
+		result.Valid = true
 		for _, entry := range readSocketEntries(file.path, file.protocol, file.tcp, stateMap) {
 			if file.tcp {
 				result.Total++
@@ -1050,18 +1041,12 @@ func readTCP() TCPMetrics {
 		result.Ports = append(result.Ports, port)
 	}
 	sort.Ints(result.Ports)
-	if len(result.Ports) > 18 {
-		result.Ports = result.Ports[:18]
-	}
 	sort.Slice(result.Listeners, func(i, j int) bool {
 		if result.Listeners[i].Port == result.Listeners[j].Port {
 			return result.Listeners[i].Protocol < result.Listeners[j].Protocol
 		}
 		return result.Listeners[i].Port < result.Listeners[j].Port
 	})
-	if len(result.Listeners) > 40 {
-		result.Listeners = result.Listeners[:40]
-	}
 	return result
 }
 
@@ -1104,28 +1089,20 @@ func parsePressure(text string) map[string]PressureValues {
 }
 
 func readTemperature() TempMetrics {
-	entries, err := os.ReadDir("/sys/class/thermal")
-	if err != nil {
-		return TempMetrics{}
-	}
+	entries, _ := os.ReadDir("/sys/class/thermal")
 	var zones []TempZone
 	for _, entry := range entries {
 		if !isThermalZoneName(entry.Name()) {
 			continue
 		}
 		base := "/sys/class/thermal/" + entry.Name()
-		raw, err := strconv.ParseFloat(strings.TrimSpace(readText(base+"/temp")), 64)
-		if err != nil {
+		celsius, valid := parseMilliCelsius(readText(base + "/temp"))
+		if !valid {
 			continue
 		}
-		if raw > 1000 {
-			raw /= 1000
-		}
-		if raw < -50 || raw > 150 {
-			continue
-		}
-		zones = append(zones, TempZone{Name: entry.Name(), Type: strings.TrimSpace(readText(base + "/type")), Celsius: raw})
+		zones = append(zones, TempZone{Name: entry.Name(), Type: strings.TrimSpace(readText(base + "/type")), Celsius: celsius})
 	}
+	zones = append(zones, readCPUHwmonTemperatures()...)
 	sort.Slice(zones, func(i, j int) bool { return zones[i].Celsius > zones[j].Celsius })
 	result := TempMetrics{Zones: zones[:min(len(zones), 6)]}
 	if len(zones) > 0 {
@@ -1154,7 +1131,7 @@ func readFileHandles() FileHandles {
 	if allocated > unused {
 		used = allocated - unused
 	}
-	return FileHandles{Allocated: allocated, Unused: unused, Used: used, Max: maxFiles, Percent: percent(used, maxFiles)}
+	return FileHandles{Valid: true, Allocated: allocated, Unused: unused, Used: used, Max: maxFiles, Percent: percent(used, maxFiles)}
 }
 
 func readHost() HostMetrics {
@@ -1211,7 +1188,18 @@ func readHost() HostMetrics {
 
 func (s *AppState) readHardware(host HostMetrics, cpu CPUMetrics, mem MemoryMetrics, disk DiskMetrics, netm NetworkMetrics) HardwareMetrics {
 	if !s.hardwareAt.IsZero() && time.Since(s.hardwareAt) < 30*time.Second {
-		return s.hardware
+		// long: 仅缓存静态硬件，拷贝切片后更新动态值，避免修改旧快照引发数据竞争。
+		hardware := s.hardware
+		hardware.CPU.SpeedMHz = cpu.SpeedMHz
+		hardware.Memory = readMemoryHardware(mem)
+		hardware.Network = append([]NetworkHardware(nil), s.hardware.Network...)
+		for i := range hardware.Network {
+			item := &hardware.Network[i]
+			details := readNetworkInterfaceDetails(item.Name)
+			item.Kind, item.State = details.Kind, details.State
+			item.SpeedMbps, item.Duplex, item.MTU = details.SpeedMbps, details.Duplex, details.MTU
+		}
+		return hardware
 	}
 	pciDevices := readPCIDevices()
 	hardware := HardwareMetrics{
@@ -1617,16 +1605,22 @@ func splitLspciMMLine(line string) []string {
 }
 
 func readPCIDevicesFromSys() []PCIHardwareDevice {
-	entries, err := os.ReadDir("/sys/bus/pci/devices")
+	return readPCIDevicesAt("/sys/bus/pci/devices")
+}
+
+func readPCIDevicesAt(root string) []PCIHardwareDevice {
+	entries, err := os.ReadDir(root)
 	if err != nil {
 		return nil
 	}
 	var result []PCIHardwareDevice
 	for _, entry := range entries {
-		if !entry.IsDir() {
+		base := filepath.Join(root, entry.Name())
+		// long: sysfs 的 PCI 目录项通常是符号链接，需要跟随链接才能识别设备。
+		info, err := os.Stat(base)
+		if err != nil || !info.IsDir() {
 			continue
 		}
-		base := "/sys/bus/pci/devices/" + entry.Name()
 		vendorID := cleanHardwareValue(readText(base + "/vendor"))
 		deviceID := cleanHardwareValue(readText(base + "/device"))
 		result = append(result, PCIHardwareDevice{
@@ -1664,7 +1658,7 @@ func readNetworkHardware(netm NetworkMetrics, pciDevices []PCIHardwareDevice) []
 	}
 	activeNames := map[string]bool{}
 	for _, iface := range netm.Interfaces {
-		activeNames[iface.Name] = true
+		activeNames[iface.Name] = interfaceIsUp(iface.Name)
 	}
 
 	var result []NetworkHardware
@@ -1677,7 +1671,7 @@ func readNetworkHardware(netm NetworkMetrics, pciDevices []PCIHardwareDevice) []
 		item := NetworkHardware{
 			Name:   name,
 			Kind:   "virtual",
-			State:  cleanHardwareValue(readText(base + "/operstate")),
+			State:  strings.TrimSpace(readText(base + "/operstate")),
 			Duplex: cleanHardwareValue(readText(base + "/duplex")),
 			MTU:    parseIntValue(readText(base + "/mtu")),
 		}
@@ -2036,9 +2030,16 @@ func readCPUInfo() cpuInfo {
 
 func readLoadAvg() []float64 {
 	parts := strings.Fields(readText("/proc/loadavg"))
+	if len(parts) < 3 {
+		return nil
+	}
 	load := []float64{0, 0, 0}
 	for i := 0; i < len(parts) && i < 3; i++ {
-		load[i], _ = strconv.ParseFloat(parts[i], 64)
+		value, err := strconv.ParseFloat(parts[i], 64)
+		if err != nil || value < 0 || math.IsNaN(value) || math.IsInf(value, 0) {
+			return nil
+		}
+		load[i] = value
 	}
 	return load
 }
@@ -2116,7 +2117,7 @@ func readNetworkInterfaceDetails(name string) NetInterface {
 	item := NetInterface{
 		Name:   name,
 		Kind:   "virtual",
-		State:  cleanHardwareValue(readText(base + "/operstate")),
+		State:  strings.TrimSpace(readText(base + "/operstate")),
 		Duplex: cleanHardwareValue(readText(base + "/duplex")),
 		MTU:    parseIntValue(readText(base + "/mtu")),
 	}
@@ -2128,7 +2129,7 @@ func readNetworkInterfaceDetails(name string) NetInterface {
 		if driverPath, err := filepath.EvalSymlinks(base + "/device/driver"); err == nil {
 			item.Driver = cleanHardwareValue(filepath.Base(driverPath))
 		}
-	} else if item.State == "up" {
+	} else if interfaceIsUp(name) {
 		item.Kind = "virtual-active"
 	}
 	return item
@@ -2151,6 +2152,10 @@ func readSocketEntries(path, protocol string, tcp bool, stateMap map[string]stri
 			continue
 		}
 		state := "bound"
+		// long: connected UDP socket 不是监听入口，只把 UNCONN(07) 计入端口占用。
+		if !tcp && parts[3] != "07" {
+			continue
+		}
 		if tcp {
 			state = stateMap[parts[3]]
 			if state == "" {

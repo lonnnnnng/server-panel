@@ -448,6 +448,13 @@ dd {
   white-space: nowrap;
 }
 
+.metric-card .muted {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
 .stat-strip {
   display: grid;
   grid-template-columns: repeat(6, minmax(0, 1fr));
