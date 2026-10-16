@@ -5,14 +5,14 @@ async function main() {
   const base = new URL(process.argv[2] || 'http://127.0.0.1:8888');
   const health = await fetch(new URL('/api/health', base), {signal:AbortSignal.timeout(5000)}).then(r => r.json());
   assert.equal(health.ok, true);
-  const response = await fetch(new URL('/api/events', base), {signal:AbortSignal.timeout(12000)});
+  const response = await fetch(new URL('/api/events', base), {signal:AbortSignal.timeout(10000)});
   assert.equal(response.ok, true);
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
   let pending = '';
   const samples = [];
   try {
-    while (samples.length < 12) {
+    while (samples.length < 5) {
       const {value,done} = await reader.read();
       assert.equal(done, false, 'SSE ended before enough samples');
       pending += decoder.decode(value, {stream:true});
@@ -33,6 +33,8 @@ async function main() {
   const near = (a,b,label,tolerance=1e-6) => assert.ok(Math.abs(a-b) <= tolerance, `${label}: ${a} != ${b}`);
   for (const m of samples) {
     assert.ok(m.cpu.valid && m.memory.valid && m.disk.valid && m.network.valid, 'core source unavailable');
+    // long: 新版不再扫描进程列表，线上快照也必须保持没有进程热点负载。
+    assert.equal('processes' in m, false, 'process scan data must be omitted');
     assert.equal(m.memory.used, m.memory.total - m.memory.available);
     near(m.memory.percent, m.memory.used/m.memory.total*100, 'memory percent', 0.001);
     assert.equal(m.disk.percent, Math.ceil(m.disk.used/(m.disk.used+m.disk.available)*100));
@@ -57,6 +59,6 @@ async function main() {
   console.log(JSON.stringify({health,samples:samples.length,intervalMs:{min:Math.min(...intervals),max:Math.max(...intervals)},
     memoryPercent:m.memory.percent,diskPercent:m.disk.percent,networkScope:m.network.scope,interfaces:m.network.selectedInterfaces,
     ioScope:m.disk.io.scope,tcpListeners:m.tcp.listening,udpListeners:m.tcp.udpListening,
-    historyCurrent:true,processCpuAvailable:m.processes.topCpu.some(x=>x.cpuValid)},null,2));
+    historyCurrent:true,processScanData:false},null,2));
 }
 main().catch(error => { console.error(error.message); process.exitCode = 1; });
