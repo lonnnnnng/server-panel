@@ -1,0 +1,398 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Server Panel · 服务器面板</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <header class="topbar">
+        <div class="title-block">
+          <p class="eyebrow">Server Panel</p>
+          <h1 id="hostname">服务器面板</h1>
+          <p id="hostSubtitle" class="subtitle">--</p>
+        </div>
+        <div class="top-meta" aria-live="polite">
+          <div class="status-pill">
+            <span class="status-dot" id="connectionDot"></span>
+            <span id="connectionText">连接中</span>
+          </div>
+          <div class="meta-pill">
+            <span>刷新</span>
+            <strong id="timestamp">--</strong>
+          </div>
+          <div class="meta-pill">
+            <span>运行</span>
+            <strong id="uptimeBadge">--</strong>
+          </div>
+          <div class="meta-pill address">
+            <span>地址</span>
+            <strong id="primaryAddress">--</strong>
+          </div>
+        </div>
+      </header>
+
+      <section class="overview-grid" aria-label="核心指标">
+        <article class="metric-card cpu-card">
+          <div class="card-head">
+            <div>
+              <span class="label">CPU</span>
+              <h2>计算负载</h2>
+            </div>
+            <strong id="cpuValue" class="metric-value">0%</strong>
+          </div>
+          <div class="cpu-layout">
+            <div class="ring" id="cpuRing" style="--value: 0">
+              <span id="cpuRingValue">0%</span>
+            </div>
+            <div class="stacked-details">
+              <div class="kv">
+                <span>负载</span>
+                <strong id="cpuLoad">-- / -- / --</strong>
+              </div>
+              <div class="kv">
+                <span>核心</span>
+                <strong id="cpuCores">--</strong>
+              </div>
+              <div class="kv">
+                <span>频率</span>
+                <strong id="cpuSpeed">--</strong>
+              </div>
+              <div class="kv">
+                <span>温度</span>
+                <strong id="cpuTemp">--</strong>
+              </div>
+            </div>
+          </div>
+          <div class="breakdown">
+            <div>
+              <span>用户</span>
+              <strong id="cpuUser">0%</strong>
+            </div>
+            <div>
+              <span>系统</span>
+              <strong id="cpuSystem">0%</strong>
+            </div>
+            <div>
+              <span>IO 等待</span>
+              <strong id="cpuIowait">0%</strong>
+            </div>
+          </div>
+          <div id="perCoreGrid" class="core-grid"></div>
+        </article>
+
+        <article class="metric-card">
+          <div class="card-head">
+            <div>
+              <span class="label memory-label">Memory</span>
+              <h2>内存池</h2>
+            </div>
+            <strong id="memoryValue" class="metric-value">0%</strong>
+          </div>
+          <div class="segmented-bar">
+            <span id="memoryUsedSegment" class="seg-used" style="width: 0%"></span>
+            <span id="memoryCacheSegment" class="seg-cache" style="width: 0%"></span>
+          </div>
+          <dl class="metric-list">
+            <div>
+              <dt>已用</dt>
+              <dd id="memoryUsed">--</dd>
+            </div>
+            <div>
+              <dt>可用</dt>
+              <dd id="memoryAvailable">--</dd>
+            </div>
+            <div>
+              <dt>缓存</dt>
+              <dd id="memoryCached">--</dd>
+            </div>
+            <div>
+              <dt>Swap</dt>
+              <dd id="swapUsage">--</dd>
+            </div>
+          </dl>
+        </article>
+
+        <article class="metric-card">
+          <div class="card-head">
+            <div>
+              <span class="label disk-label">Storage</span>
+              <h2>根分区</h2>
+            </div>
+            <strong id="diskValue" class="metric-value">0%</strong>
+          </div>
+          <div class="bar">
+            <span id="diskBar" class="disk-fill" style="width: 0%"></span>
+          </div>
+          <dl class="metric-list">
+            <div>
+              <dt>挂载点</dt>
+              <dd id="diskMount">/</dd>
+            </div>
+            <div>
+              <dt>已用</dt>
+              <dd id="diskUsed">--</dd>
+            </div>
+            <div>
+              <dt>剩余</dt>
+              <dd id="diskAvailable">--</dd>
+            </div>
+            <div>
+              <dt>IO 忙碌</dt>
+              <dd id="diskBusy">--</dd>
+            </div>
+          </dl>
+          <div class="rate-pair">
+            <div>
+              <span>读</span>
+              <strong id="diskReadRate">--</strong>
+            </div>
+            <div>
+              <span>写</span>
+              <strong id="diskWriteRate">--</strong>
+            </div>
+          </div>
+        </article>
+
+        <article class="metric-card">
+          <div class="card-head">
+            <div>
+              <span class="label network-label">Network</span>
+              <h2>网络吞吐</h2>
+            </div>
+            <strong id="activeIfaces" class="metric-value">--</strong>
+          </div>
+          <div class="rate-pair large">
+            <div>
+              <span>入站</span>
+              <strong id="rxRate">--</strong>
+            </div>
+            <div>
+              <span>出站</span>
+              <strong id="txRate">--</strong>
+            </div>
+          </div>
+          <div class="traffic-total-grid" aria-label="累计流量">
+            <div>
+              <span>累计接收</span>
+              <strong id="rxTotal">--</strong>
+            </div>
+            <div>
+              <span>累计发送</span>
+              <strong id="txTotal">--</strong>
+            </div>
+            <div>
+              <span>累计总量</span>
+              <strong id="trafficTotal">--</strong>
+            </div>
+          </div>
+          <dl class="metric-list">
+            <div>
+              <dt>包速率</dt>
+              <dd id="packetRate">--</dd>
+            </div>
+            <div>
+              <dt>错误 / 丢包</dt>
+              <dd id="netErrorsDrops">--</dd>
+            </div>
+            <div>
+              <dt>TCP 已建立</dt>
+              <dd id="tcpEstablished">--</dd>
+            </div>
+            <div>
+              <dt>监听端口</dt>
+              <dd id="tcpListening">--</dd>
+            </div>
+          </dl>
+        </article>
+      </section>
+
+      <section class="stat-strip" aria-label="补充指标">
+        <div>
+          <span>系统压力 CPU</span>
+          <strong id="pressureCpu">--</strong>
+        </div>
+        <div>
+          <span>系统压力内存</span>
+          <strong id="pressureMemory">--</strong>
+        </div>
+        <div>
+          <span>系统压力 IO</span>
+          <strong id="pressureIo">--</strong>
+        </div>
+        <div>
+          <span>文件句柄</span>
+          <strong id="fileHandles">--</strong>
+        </div>
+        <div>
+          <span>进程 / 运行</span>
+          <strong id="processSummary">--</strong>
+        </div>
+        <div>
+          <span>TCP 总数</span>
+          <strong id="tcpTotal">--</strong>
+        </div>
+      </section>
+
+      <section class="chart-grid" aria-label="趋势图">
+        <article class="panel chart-panel">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">Utilization</p>
+              <h2>资源利用率趋势</h2>
+            </div>
+            <div class="legend">
+              <span><i class="cpu-line"></i>CPU</span>
+              <span><i class="mem-line"></i>内存</span>
+              <span><i class="disk-line"></i>磁盘</span>
+              <span><i class="load-line"></i>负载</span>
+            </div>
+          </div>
+          <canvas id="utilizationChart" width="900" height="280"></canvas>
+        </article>
+        <article class="panel chart-panel">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">Throughput</p>
+              <h2>网络与磁盘吞吐</h2>
+            </div>
+            <div class="legend">
+              <span><i class="rx-line"></i>RX</span>
+              <span><i class="tx-line"></i>TX</span>
+              <span><i class="read-line"></i>读</span>
+              <span><i class="write-line"></i>写</span>
+            </div>
+          </div>
+          <canvas id="throughputChart" width="900" height="280"></canvas>
+        </article>
+      </section>
+
+      <section class="detail-grid">
+        <article class="panel wide hardware-panel">
+          <div class="section-heading compact">
+            <h2>硬件详情</h2>
+          </div>
+          <div id="hardware" class="hardware-grid"></div>
+        </article>
+
+        <article class="panel">
+          <div class="section-heading compact">
+            <h2>主机</h2>
+          </div>
+          <div id="hostGroups" class="host-groups"></div>
+          <section class="host-section">
+            <h3>地址</h3>
+            <div id="localAddresses" class="token-list"></div>
+          </section>
+          <section class="host-section">
+            <h3>温度</h3>
+            <div id="tempZones" class="compact-list"></div>
+          </section>
+        </article>
+
+        <article class="panel">
+          <div class="section-heading compact">
+            <h2>文件系统</h2>
+          </div>
+          <div id="fsList" class="fs-list"></div>
+        </article>
+
+        <article class="panel">
+          <div class="section-heading compact">
+            <h2>内存细节</h2>
+          </div>
+          <div id="memoryDetails" class="memory-detail-grid"></div>
+        </article>
+
+        <article class="panel">
+          <div class="section-heading compact">
+            <h2>网络细节</h2>
+          </div>
+          <div id="interfaces" class="interface-list"></div>
+          <div id="tcpStates" class="compact-list"></div>
+        </article>
+
+        <article class="panel wide">
+          <div class="section-heading compact">
+            <h2>端口占用</h2>
+          </div>
+          <div class="table-scroll">
+            <table class="port-table">
+              <thead>
+                <tr>
+                  <th>协议</th>
+                  <th>本地地址</th>
+                  <th>端口</th>
+                  <th>PID</th>
+                  <th>用户</th>
+                  <th>进程</th>
+                  <th>命令</th>
+                </tr>
+              </thead>
+              <tbody id="portListeners">
+                <tr>
+                  <td colspan="7">等待数据</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </article>
+
+        <article class="panel wide">
+          <div class="section-heading compact">
+            <h2>进程热点</h2>
+          </div>
+          <div class="process-grid">
+            <div>
+              <h3>CPU</h3>
+              <table>
+                <thead>
+                  <tr>
+                    <th>PID</th>
+                    <th>用户</th>
+                    <th>进程</th>
+                    <th>CPU</th>
+                    <th>RSS</th>
+                    <th>线程</th>
+                    <th>PPID</th>
+                  </tr>
+                </thead>
+                <tbody id="topCpuTable">
+                  <tr>
+                    <td colspan="7">等待数据</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <div>
+              <h3>内存</h3>
+              <table>
+                <thead>
+                  <tr>
+                    <th>PID</th>
+                    <th>进程</th>
+                    <th>RSS</th>
+                    <th>占比</th>
+                    <th>VSZ</th>
+                    <th>匿名</th>
+                    <th>文件页</th>
+                    <th>Swap</th>
+                  </tr>
+                </thead>
+                <tbody id="topMemoryTable">
+                  <tr>
+                    <td colspan="8">等待数据</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </article>
+      </section>
+    </main>
+
+    <script src="/app.js" defer></script>
+  </body>
+</html>

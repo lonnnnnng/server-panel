@@ -1,0 +1,8 @@
+/bin/
+/dist/
+/logs/
+/*.pid
+/.env
+/config/server-panel.env
+.DS_Store
+*.log
